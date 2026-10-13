@@ -1,0 +1,370 @@
+/*
+ * ZP Vendor Portal – front end.
+ * Palette follows the Texas County Progress header: navy bar, red band.
+ * Headings use the theme's Raleway; body text inherits the theme.
+ */
+.zpvp {
+	--zpvp-navy: #2b3152;
+	--zpvp-navy-deep: #1f2440;
+	--zpvp-red: #b8282e;
+	--zpvp-ink: #1f2433;
+	--zpvp-muted: #5d6375;
+	--zpvp-line: #dcdfe7;
+	--zpvp-surface: #f4f5f8;
+	--zpvp-paper: #ffffff;
+	--zpvp-radius: 10px;
+	--zpvp-display: "Raleway", "Helvetica Neue", Arial, sans-serif;
+	color: var(--zpvp-ink);
+	font-size: 16px;
+	line-height: 1.55;
+}
+.zpvp *, .zpvp *::before, .zpvp *::after { box-sizing: border-box; }
+
+/* Full-width portal pages: the plugin renders its own headings. */
+.zpvp-portal .entry-header { display: none; }
+.zpvp-portal .entry-content > .zpvp { margin-top: 8px; }
+
+.zpvp h1, .zpvp h2, .zpvp h3, .zpvp h4 {
+	font-family: var(--zpvp-display);
+	color: var(--zpvp-navy);
+	letter-spacing: 0;
+	text-transform: none;
+	margin: 0 0 .5em;
+	line-height: 1.25;
+}
+.zpvp h1 { font-size: 1.9rem; font-weight: 700; }
+.zpvp h2 { font-size: 1.3rem; font-weight: 700; }
+.zpvp h3 { font-size: 1.05rem; font-weight: 700; }
+.zpvp h4 { font-size: .95rem; font-weight: 700; }
+.zpvp p { margin: 0 0 1em; }
+.zpvp a { color: var(--zpvp-navy); }
+
+/* ---------- Buttons, links, pills ---------- */
+.zpvp .zpvp-btn,
+.zpvp .gform_wrapper .gform_button,
+.zpvp .gform_wrapper input[type="submit"] {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: .4em;
+	padding: .62em 1.15em;
+	border: 1px solid var(--zpvp-navy);
+	border-radius: 6px;
+	background: var(--zpvp-paper);
+	color: var(--zpvp-navy);
+	font-family: var(--zpvp-display);
+	font-size: .95rem;
+	font-weight: 700;
+	line-height: 1.2;
+	letter-spacing: 0;
+	text-transform: none;
+	text-decoration: none;
+	cursor: pointer;
+	box-shadow: none;
+	width: auto;
+}
+.zpvp .zpvp-btn:hover { background: var(--zpvp-surface); color: var(--zpvp-navy); }
+.zpvp .zpvp-btn--primary,
+.zpvp .gform_wrapper .gform_button,
+.zpvp .gform_wrapper input[type="submit"] { background: var(--zpvp-navy); color: #fff; }
+.zpvp .zpvp-btn--primary:hover,
+.zpvp .gform_wrapper .gform_button:hover { background: var(--zpvp-navy-deep); color: #fff; }
+.zpvp .zpvp-btn--accent { background: var(--zpvp-red); border-color: var(--zpvp-red); color: #fff; }
+.zpvp .zpvp-btn--accent:hover { background: #9c1f25; border-color: #9c1f25; color: #fff; }
+.zpvp .zpvp-btn--block { width: 100%; }
+.zpvp .zpvp-btn:focus-visible,
+.zpvp a:focus-visible,
+.zpvp summary:focus-visible,
+.zpvp input:focus-visible,
+.zpvp button:focus-visible { outline: 3px solid var(--zpvp-red); outline-offset: 2px; }
+
+.zpvp .zpvp-link { font-weight: 600; font-size: .92rem; }
+
+.zpvp-pill {
+	display: inline-block;
+	padding: .18em .7em;
+	border-radius: 999px;
+	font-size: .8rem;
+	font-weight: 700;
+	line-height: 1.5;
+	white-space: nowrap;
+	background: var(--zpvp-surface);
+	color: var(--zpvp-muted);
+}
+.zpvp-pill--paid, .zpvp-pill--registered { background: #e5f3ea; color: #17613b; }
+.zpvp-pill--awaiting { background: #fbf0d6; color: #7a4f00; }
+.zpvp-pill--pending { background: #e7eef8; color: #2a4f86; }
+.zpvp-pill--failed, .zpvp-pill--soldout { background: #f9e5e6; color: #9c1f25; }
+
+/* ---------- Notices ---------- */
+.zpvp-notice {
+	padding: .8em 1em;
+	margin: 0 0 1.2em;
+	border-radius: 6px;
+	border-left: 4px solid var(--zpvp-muted);
+	background: var(--zpvp-surface);
+	font-size: .95rem;
+}
+.zpvp-notice--success { border-left-color: #1d7a4b; background: #eef7f1; }
+.zpvp-notice--error { border-left-color: var(--zpvp-red); background: #fbeeee; }
+
+/* ---------- Forms ---------- */
+.zpvp label { display: block; font-weight: 700; font-size: .9rem; margin-bottom: .3em; color: var(--zpvp-ink); }
+.zpvp input[type="text"],
+.zpvp input[type="email"],
+.zpvp input[type="password"],
+.zpvp input[type="tel"],
+.zpvp input[type="number"],
+.zpvp select,
+.zpvp textarea {
+	width: 100%;
+	padding: .62em .75em;
+	border: 1px solid #c9cdd8;
+	border-radius: 6px;
+	background: var(--zpvp-paper);
+	color: var(--zpvp-ink);
+	font-size: 1rem;
+	line-height: 1.3;
+	box-shadow: none;
+}
+.zpvp input:focus, .zpvp select:focus, .zpvp textarea:focus { border-color: var(--zpvp-navy); outline: none; box-shadow: 0 0 0 3px rgba(43, 49, 82, .15); }
+.zpvp input[readonly] { background: var(--zpvp-surface); color: var(--zpvp-muted); }
+.zpvp .zpvp-help { display: block; margin-top: .35em; font-size: .85rem; color: var(--zpvp-muted); }
+.zpvp .zpvp-inline label { display: inline-flex; align-items: center; gap: .4em; font-weight: 400; }
+.zpvp .zpvp-links { font-size: .92rem; color: var(--zpvp-muted); }
+.zpvp-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+
+/* ---------- Login and registration layout ---------- */
+.zpvp-access {
+	display: grid;
+	grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+	gap: 32px;
+	align-items: start;
+}
+.zpvp-access__intro {
+	background: var(--zpvp-navy);
+	color: #fff;
+	border-radius: var(--zpvp-radius);
+	border-bottom: 5px solid var(--zpvp-red);
+	padding: 32px 30px;
+}
+.zpvp .zpvp-access__intro h2 { color: #fff; font-size: 1.45rem; }
+.zpvp-access__intro p { color: rgba(255, 255, 255, .8); }
+.zpvp-access__intro ul { list-style: none; margin: 0; padding: 0; }
+.zpvp-access__intro li { position: relative; padding: .45em 0 .45em 26px; border-top: 1px solid rgba(255, 255, 255, .14); }
+.zpvp-access__intro li::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: .95em;
+	width: 10px;
+	height: 10px;
+	border-radius: 2px;
+	background: var(--zpvp-red);
+}
+.zpvp-access__panel {
+	border: 1px solid var(--zpvp-line);
+	border-radius: var(--zpvp-radius);
+	background: var(--zpvp-paper);
+	padding: 32px;
+}
+.zpvp .zpvp-access__title { font-size: 1.55rem; }
+.zpvp-access .gform_wrapper { margin: 0; }
+.zpvp-access .gform_wrapper .gform_description { color: var(--zpvp-muted); }
+
+/* ---------- Portal shell ---------- */
+.zpvp-shell {
+	border: 1px solid var(--zpvp-line);
+	border-radius: var(--zpvp-radius);
+	overflow: hidden;
+	background: var(--zpvp-paper);
+}
+.zpvp-shell__bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px 24px;
+	padding: 14px 24px;
+	background: var(--zpvp-navy);
+	border-bottom: 5px solid var(--zpvp-red);
+	color: #fff;
+}
+.zpvp-shell__who { display: flex; flex-direction: column; }
+.zpvp-shell__title { font-family: var(--zpvp-display); font-weight: 700; font-size: 1.05rem; }
+.zpvp-shell__company { font-size: .88rem; color: rgba(255, 255, 255, .72); }
+.zpvp-shell__nav { display: flex; flex-wrap: wrap; gap: 4px; }
+.zpvp .zpvp-shell__nav a {
+	color: rgba(255, 255, 255, .86);
+	text-decoration: none;
+	font-weight: 600;
+	font-size: .95rem;
+	padding: .45em .8em;
+	border-radius: 6px;
+	border-bottom: 3px solid transparent;
+}
+.zpvp .zpvp-shell__nav a:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+.zpvp .zpvp-shell__nav a.is-active { color: #fff; border-bottom-color: var(--zpvp-red); border-radius: 6px 6px 0 0; }
+.zpvp .zpvp-shell__nav .zpvp-shell__logout { color: rgba(255, 255, 255, .65); }
+.zpvp-shell__main { padding: 28px 28px 12px; }
+
+.zpvp-page-head { margin-bottom: 20px; }
+.zpvp-page-head h1 { margin-bottom: .25em; }
+.zpvp-page-head p { color: var(--zpvp-muted); margin: 0; }
+.zpvp-section { margin: 0 0 36px; }
+.zpvp-empty {
+	padding: 18px 20px;
+	border: 1px dashed #c9cdd8;
+	border-radius: 8px;
+	color: var(--zpvp-muted);
+	background: var(--zpvp-surface);
+}
+.zpvp-back { font-size: .92rem; margin-bottom: 10px; }
+
+/* ---------- Exhibitor passes ---------- */
+.zpvp-passes {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+	gap: 20px;
+}
+.zpvp-pass {
+	display: flex;
+	flex-direction: column;
+	border: 1px solid var(--zpvp-line);
+	border-radius: var(--zpvp-radius);
+	background: var(--zpvp-paper);
+	overflow: hidden;
+}
+.zpvp-pass__top {
+	position: relative;
+	padding: 26px 22px 16px;
+	background: var(--zpvp-navy);
+	border-bottom: 4px solid var(--zpvp-red);
+}
+.zpvp-pass__hole {
+	position: absolute;
+	top: 10px;
+	left: 50%;
+	width: 46px;
+	height: 8px;
+	margin-left: -23px;
+	border-radius: 6px;
+	background: var(--zpvp-paper);
+}
+.zpvp .zpvp-pass__event { color: #fff; font-size: 1.02rem; margin: 0 0 .3em; }
+.zpvp-pass__when { color: rgba(255, 255, 255, .75); font-size: .88rem; margin: 0; }
+.zpvp-pass__body { padding: 18px 22px 8px; flex: 1; }
+.zpvp-pass__booth span { display: block; font-size: .85rem; color: var(--zpvp-muted); font-weight: 600; }
+.zpvp-pass__booth strong {
+	display: block;
+	font-family: var(--zpvp-display);
+	font-size: 2.6rem;
+	font-weight: 800;
+	line-height: 1.05;
+	color: var(--zpvp-navy);
+	font-variant-numeric: tabular-nums;
+}
+.zpvp-pass__booth em { display: block; font-style: normal; font-size: 1.05rem; font-weight: 700; color: var(--zpvp-muted); padding: .35em 0 .2em; }
+.zpvp-pass__facts {
+	display: grid;
+	grid-template-columns: repeat(3, auto);
+	justify-content: start;
+	gap: 6px 24px;
+	margin: 16px 0 10px;
+}
+.zpvp-pass__facts dt { font-size: .8rem; color: var(--zpvp-muted); margin: 0; }
+.zpvp-pass__facts dd { margin: 0; font-weight: 700; font-size: .95rem; }
+.zpvp-pass__actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	padding: 14px 22px 18px;
+	border-top: 2px dashed var(--zpvp-line);
+}
+
+/* ---------- Open conferences ---------- */
+.zpvp-events { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--zpvp-line); }
+.zpvp-event {
+	display: grid;
+	grid-template-columns: 64px minmax(0, 1fr) auto;
+	gap: 18px;
+	align-items: center;
+	padding: 16px 0;
+	border-bottom: 1px solid var(--zpvp-line);
+}
+.zpvp-event__date {
+	border: 1px solid var(--zpvp-line);
+	border-radius: 8px;
+	overflow: hidden;
+	text-align: center;
+	background: var(--zpvp-paper);
+}
+.zpvp-event__date span { display: block; background: var(--zpvp-red); color: #fff; font-size: .75rem; font-weight: 700; padding: 2px 0; }
+.zpvp-event__date strong { display: block; font-family: var(--zpvp-display); color: var(--zpvp-navy); font-size: .95rem; padding: 6px 2px; line-height: 1.1; }
+.zpvp .zpvp-event__main h3 { margin: 0 0 .2em; }
+.zpvp-event__main p { margin: 0; color: var(--zpvp-muted); font-size: .92rem; }
+.zpvp-event__cta { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; text-align: right; }
+
+/* ---------- Conference information ---------- */
+.zpvp-info { border: 1px solid var(--zpvp-line); border-radius: 8px; margin-bottom: 12px; background: var(--zpvp-paper); }
+.zpvp-info summary { padding: 14px 18px; font-weight: 700; color: var(--zpvp-navy); cursor: pointer; }
+.zpvp-info[open] summary { border-bottom: 1px solid var(--zpvp-line); }
+.zpvp-info__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px 28px; padding: 16px 18px 6px; }
+.zpvp-info__item p, .zpvp-info__item ul { font-size: .93rem; }
+.zpvp-info__item ul { margin: 0 0 1em 1.1em; padding: 0; }
+
+/* ---------- Previous conferences ---------- */
+.zpvp-history { list-style: none; margin: 0; padding: 0; }
+.zpvp-history li {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto auto;
+	gap: 16px;
+	align-items: baseline;
+	padding: 10px 0;
+	border-bottom: 1px solid var(--zpvp-line);
+}
+.zpvp-history__name { font-weight: 600; }
+.zpvp-history__meta { color: var(--zpvp-muted); font-size: .9rem; }
+
+/* ---------- Booth staff page ---------- */
+.zpvp-staff h2 { margin-top: 8px; }
+.zpvp-badge-summary { color: var(--zpvp-muted); }
+.zpvp-deadline { padding: .6em .9em; background: #fbf0d6; border-radius: 6px; color: #5c3b00; font-size: .93rem; }
+.zpvp-table-wrap { overflow-x: auto; margin-bottom: 16px; }
+.zpvp-table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+.zpvp-table th { text-align: left; font-size: .85rem; color: var(--zpvp-muted); font-weight: 700; padding: 8px 8px; border-bottom: 2px solid var(--zpvp-line); white-space: nowrap; }
+.zpvp-table td { padding: 8px; border-bottom: 1px solid var(--zpvp-line); vertical-align: middle; }
+.zpvp-attendees td:last-child { text-align: center; width: 70px; }
+.zpvp-attendees input[type="checkbox"] { width: 18px; height: 18px; }
+.zpvp-attendee-new input::placeholder { color: #9aa0af; }
+
+/* ---------- Account ---------- */
+.zpvp-account { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px; align-items: start; }
+.zpvp-panel { border: 1px solid var(--zpvp-line); border-radius: var(--zpvp-radius); padding: 24px; background: var(--zpvp-paper); }
+
+/* ---------- Login prompt on conference forms ---------- */
+.zpvp-login-required { padding: 22px 24px; border: 1px solid var(--zpvp-line); border-left: 5px solid var(--zpvp-red); border-radius: 8px; background: var(--zpvp-surface); }
+.zpvp-login-required p:last-child { margin: 0; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+
+/* ---------- Small screens ---------- */
+@media (max-width: 860px) {
+	.zpvp-access, .zpvp-account { grid-template-columns: 1fr; }
+	.zpvp-shell__main { padding: 22px 16px 8px; }
+	.zpvp-access__panel, .zpvp-access__intro { padding: 24px 20px; }
+}
+@media (max-width: 600px) {
+	.zpvp-grid-2 { grid-template-columns: 1fr; }
+	.zpvp-event { grid-template-columns: 56px minmax(0, 1fr); }
+	.zpvp-event__cta { grid-column: 1 / -1; align-items: flex-start; text-align: left; flex-direction: row; flex-wrap: wrap; }
+	.zpvp-history li { grid-template-columns: 1fr auto; }
+	.zpvp-history__meta { grid-column: 1; }
+	.zpvp-pass__facts { grid-template-columns: repeat(2, auto); }
+	.zpvp-attendees thead { display: none; }
+	.zpvp-attendees tr { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--zpvp-line); }
+	.zpvp-attendees td { border: 0; padding: 0; }
+	.zpvp-attendees td:first-child { grid-column: 1 / -1; }
+	.zpvp-attendees td:last-child { text-align: left; width: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.zpvp * { transition: none !important; animation: none !important; }
+}

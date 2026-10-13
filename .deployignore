@@ -1,0 +1,7 @@
+.git
+.github
+.gitignore
+.deployignore
+README.md
+*.zip
+node_modules
