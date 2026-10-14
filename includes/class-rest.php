@@ -39,6 +39,7 @@ final class Rest {
 		register_rest_route( self::NS, '/badges', array( 'methods' => 'GET', 'callback' => array( $this, 'badges' ), 'permission_callback' => $perm ) );
 		register_rest_route( self::NS, '/badges/bulk', array( 'methods' => 'POST', 'callback' => array( $this, 'badges_bulk' ), 'permission_callback' => $perm ) );
 		register_rest_route( self::NS, '/messages', array( 'methods' => 'POST', 'callback' => array( $this, 'message' ), 'permission_callback' => $perm ) );
+		register_rest_route( self::NS, '/messages/audience', array( 'methods' => 'GET', 'callback' => array( $this, 'audience' ), 'permission_callback' => $perm ) );
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -50,6 +51,7 @@ final class Rest {
 			'edition' => absint( $r->get_param( 'edition' ) ),
 			'year'    => 0,
 			'payment' => sanitize_key( (string) $r->get_param( 'payment' ) ),
+			'category' => absint( $r->get_param( 'category' ) ),
 			'search'  => sanitize_text_field( (string) $r->get_param( 'search' ) ),
 			'from'    => '',
 			'to'      => '',
@@ -80,6 +82,8 @@ final class Rest {
 			'po'             => (string) $r->po_number,
 			'created'        => mysql2date( 'M j, Y', $r->created_at ),
 			'has_account'    => (bool) $r->user_id,
+			'company_id'     => (int) ( $r->company_id ?? 0 ),
+			'categories'     => Companies::category_names( (int) ( $r->company_id ?? 0 ) ),
 		);
 	}
 
@@ -100,6 +104,10 @@ final class Rest {
 			'document_number' => Documents::number( $r ),
 			'entry_url'       => admin_url( 'admin.php?page=gf_entries&view=entry&id=' . (int) $r->gf_form_id . '&lid=' . (int) $r->gf_entry_id ),
 			'vendor_url'      => $r->user_id ? get_edit_user_link( (int) $r->user_id ) : '',
+			'company_url'     => ! empty( $r->company_id ) ? get_edit_post_link( (int) $r->company_id, 'raw' ) : '',
+			'badge_orders'    => count( Badge_Orders::for_registration( (int) $r->id ) ),
+			'badges_owed'     => Documents::owed_badges( $r ),
+			'badge_invoice_url' => Documents::badge_invoice_url( (int) $r->id ),
 		);
 	}
 
@@ -289,18 +297,27 @@ final class Rest {
 		return array( 'updated' => $done );
 	}
 
+	public function audience( \WP_REST_Request $req ) {
+		$edition = absint( $req->get_param( 'edition' ) );
+		$targets = Admin_Messages::targets( $edition, sanitize_key( (string) $req->get_param( 'audience' ) ), absint( $req->get_param( 'category' ) ) );
+		return array( 'count' => count( $targets ), 'label' => Admin_Messages::audience_label( $targets, $edition ) );
+	}
+
 	public function message( \WP_REST_Request $req ) {
 		$edition  = absint( $req->get_param( 'edition' ) );
 		$audience = sanitize_key( (string) $req->get_param( 'audience' ) );
 		$subject  = sanitize_text_field( (string) $req->get_param( 'subject' ) );
 		$body     = sanitize_textarea_field( (string) $req->get_param( 'body' ) );
-		if ( ! $edition || '' === $subject || '' === $body ) {
-			return new \WP_Error( 'zpvp_incomplete', 'Choose a conference and enter a subject and message.', array( 'status' => 400 ) );
+		if ( '' === $subject || '' === $body ) {
+			return new \WP_Error( 'zpvp_incomplete', 'Enter a subject and message.', array( 'status' => 400 ) );
 		}
-		$regs = Admin_Messages::registrations( $edition, $audience );
+		$regs = Admin_Messages::targets( $edition, $audience, absint( $req->get_param( 'category' ) ) );
+		if ( ! $regs ) {
+			return new \WP_Error( 'zpvp_nobody', 'Nobody matches these choices, so nothing was sent.', array( 'status' => 400 ) );
+		}
 
 		if ( 'test' === sanitize_key( (string) $req->get_param( 'mode' ) ) ) {
-			$sample = $regs ? $regs[0] : (object) array( 'id' => 0, 'user_id' => 0, 'contact_name' => 'Sample Contact', 'company_name' => 'Sample Company', 'edition_id' => $edition, 'series_id' => 0, 'year' => 0, 'booths' => 1, 'booth_number' => '', 'gf_entry_id' => 0 );
+			$sample = Admin_Messages::target_object( $regs[0], $edition ) ?? (object) array( 'id' => 0, 'user_id' => 0, 'contact_name' => 'Sample Contact', 'company_name' => 'Sample Company', 'edition_id' => $edition, 'series_id' => 0, 'year' => 0, 'booths' => 1, 'booth_number' => '', 'gf_entry_id' => 0 );
 			$to     = wp_get_current_user()->user_email;
 			Mailer::send( array( $to ), '[TEST] ' . wp_specialchars_decode( Mailer::personalize( $subject, $sample ) ), make_clickable( wpautop( esc_html( wp_specialchars_decode( Mailer::personalize( $body, $sample ) ) ) ) ), array(), array( 'type' => 'message_test', 'edition_id' => $edition ) );
 			return array( 'message' => 'Test sent to ' . $to . '.' );
@@ -309,13 +326,14 @@ final class Rest {
 		$key = 'zpvp_msg_' . wp_generate_password( 10, false, false );
 		update_option( $key, array( 'subject' => $subject, 'body' => $body, 'edition' => $edition ), false );
 		$background = function_exists( 'as_enqueue_async_action' ) && count( $regs ) > 25;
-		foreach ( $regs as $reg ) {
+		foreach ( $regs as $target ) {
 			if ( $background ) {
-				as_enqueue_async_action( Admin_Messages::ACTION, array( $key, (int) $reg->id ), 'zpvp' );
+				as_enqueue_async_action( Admin_Messages::ACTION, array( $key, $target ), 'zpvp' );
 			} else {
-				Admin_Messages::send_one( $key, (int) $reg->id );
+				Admin_Messages::send_one( $key, $target );
 			}
 		}
-		return array( 'message' => sprintf( 'Message sent to %d registration(s).', count( $regs ) ) . ( $background ? ' Sending continues in the background.' : '' ) );
+		$noun = str_starts_with( $regs[0], 'c' ) ? 'compan' . ( 1 === count( $regs ) ? 'y' : 'ies' ) : 'registration(s)';
+		return array( 'message' => sprintf( 'Message sent to %d %s.', count( $regs ), $noun ) . ( $background ? ' Sending continues in the background.' : '' ) );
 	}
 }

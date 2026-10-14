@@ -10,6 +10,14 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Registration_Sync {
 
+	/**
+	 * Set while importing past entries (Historical): the vendor, conference and
+	 * year to record, and no "entry processed" action (so no emails are sent).
+	 *
+	 * @var array{user_id?:int, edition?:int, year?:int}|null
+	 */
+	public static ?array $import = null;
+
 	public function register(): void {
 		add_action( 'gform_after_submission', array( $this, 'on_submission' ), 20, 2 );
 		add_action( 'gform_post_payment_completed', array( $this, 'on_payment_completed' ), 10, 2 );
@@ -30,24 +38,28 @@ final class Registration_Sync {
 		}
 
 		if ( $form_id === Form_Map::annual_form_id() ) {
-			$this->record_annual( $entry, $form );
-			do_action( 'zpvp_entry_processed', (int) $entry['id'] );
+			if ( null === self::$import ) {
+				$this->record_annual( $entry, $form );
+				do_action( 'zpvp_entry_processed', (int) $entry['id'] );
+			}
 			return;
 		}
 
 		// The conference that chose this form (newest published one if several).
 		// The series that owns this form, and its newest published conference (0 if none yet).
-		$edition = Conferences::for_form( $form_id );
+		$edition = isset( self::$import['edition'] ) ? (int) self::$import['edition'] : Conferences::for_form( $form_id );
 		$series  = $edition ? (int) get_post_meta( $edition, 'series', true ) : Conferences::series_for_form( $form_id );
-		if ( ! $series ) {
+		if ( ! $series || Form_Map::is_sponsorship_form( $form_id ) ) {
 			if ( Conferences::series_for_sponsorship_form( $form_id ) ) {
-				$this->record_sponsorship( $entry, $form, Conferences::for_sponsorship_form( $form_id ) );
-				do_action( 'zpvp_entry_processed', (int) $entry['id'] );
+				$this->record_sponsorship( $entry, $form, isset( self::$import['edition'] ) ? (int) self::$import['edition'] : Conferences::for_sponsorship_form( $form_id ) );
+				if ( null === self::$import ) {
+					do_action( 'zpvp_entry_processed', (int) $entry['id'] );
+				}
 			}
 			return;
 		}
 		$map    = Form_Map::for_form( $form_id );
-		$year   = (int) get_post_meta( $edition, 'year', true );
+		$year   = ! empty( self::$import['year'] ) ? (int) self::$import['year'] : (int) get_post_meta( $edition, 'year', true );
 		if ( ! $year ) {
 			$year = (int) substr( (string) $entry['date_created'], 0, 4 );
 		}
@@ -68,7 +80,9 @@ final class Registration_Sync {
 		if ( $registration_id && ! empty( $map['personnel'] ) ) {
 			Attendees::import_from_entry( $registration_id, $entry, (string) $map['personnel'] );
 		}
-		do_action( 'zpvp_entry_processed', (int) $entry['id'] );
+		if ( null === self::$import ) {
+			do_action( 'zpvp_entry_processed', (int) $entry['id'] );
+		}
 	}
 
 	/**
@@ -167,7 +181,7 @@ final class Registration_Sync {
 			}
 		}
 
-		$year = (int) get_post_meta( $edition, 'year', true );
+		$year = ! empty( self::$import['year'] ) ? (int) self::$import['year'] : (int) get_post_meta( $edition, 'year', true );
 		Registrations::create(
 			$this->common( $entry, $map ) + array(
 				'edition_id' => $edition,
@@ -213,6 +227,63 @@ final class Registration_Sync {
 		return round( $total, 2 );
 	}
 
+	/**
+	 * What the portal would record from an entry, without saving anything.
+	 * Used by the Conference Builder's "Test with last entry".
+	 */
+	public function preview_entry( array $entry, array $form ): array {
+		$form_id = (int) ( $form['id'] ?? 0 );
+		$map     = Form_Map::for_form( $form_id );
+		$common  = $this->common( $entry, $map );
+		$out     = array(
+			'entry_id'       => (int) $entry['id'],
+			'date'           => mysql2date( 'M j, Y g:i a', (string) $entry['date_created'] ),
+			'company'        => $common['company_name'],
+			'contact'        => $common['contact_name'],
+			'email'          => $common['contact_email'],
+			'payment_method' => Registrations::method_label( $common['payment_method'] ),
+			'payment_status' => Registrations::payment_label( $common['payment_status'] ),
+			'po_number'      => $common['po_number'],
+			'total'          => $this->money( rgar( $entry, $map['total'] ?? '' ) ),
+			'bookings'       => array(),
+			'people'         => array(),
+		);
+
+		if ( $form_id === Form_Map::annual_form_id() ) {
+			$labels = Conferences::annual_dropdowns();
+			foreach ( Conferences::annual_fields() as $field_id ) {
+				[ $label, $price ] = array_pad( explode( '|', (string) rgar( $entry, (string) $field_id ), 2 ), 2, '0' );
+				if ( '' === $label || preg_match( '/^\s*select/i', $label ) || $this->money( $price ) <= 0 ) {
+					continue;
+				}
+				$out['bookings'][] = array(
+					'conference' => $labels[ $field_id ] ?? 'Field ' . $field_id,
+					'choice'     => $label,
+					'booths'     => $this->booths_from_label( $label ),
+					'amount'     => $this->money( $price ),
+				);
+			}
+			return $out;
+		}
+
+		$out['booths']          = $this->booth_count( $entry, $map );
+		$out['included_badges'] = $this->int_value( $entry, $map['included_badges'] ?? '' );
+		$out['paid_badges']     = $this->int_value( $entry, ! empty( $map['badge_product'] ) ? $map['badge_product'] . '.3' : '' );
+		if ( ! empty( $map['personnel'] ) ) {
+			$rows = maybe_unserialize( (string) rgar( $entry, (string) $map['personnel'] ) );
+			foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+				// Same reading as Attendees::import_from_entry(): first column name, second title.
+				$values = is_array( $row ) ? array_values( $row ) : array( $row );
+				$name   = sanitize_text_field( (string) ( $values[0] ?? '' ) );
+				$title  = sanitize_text_field( (string) ( $values[1] ?? '' ) );
+				if ( '' !== $name ) {
+					$out['people'][] = $title ? $name . ', ' . $title : $name;
+				}
+			}
+		}
+		return $out;
+	}
+
 	/** Fields shared by every registration from one entry. */
 	private function common( array $entry, array $map ): array {
 		$method = $this->payment_method( $entry, $map );
@@ -234,6 +305,9 @@ final class Registration_Sync {
 	 * or (for staff entering it in WP Admin) the vendor with the entry's email.
 	 */
 	private function vendor_id( array $entry, array $map ): int {
+		if ( isset( self::$import['user_id'] ) ) {
+			return (int) self::$import['user_id'];
+		}
 		$current = wp_get_current_user();
 		if ( $current->exists() && Roles::is_vendor( $current ) ) {
 			return (int) $current->ID;
@@ -356,7 +430,7 @@ final class Registration_Sync {
 		}
 		$map    = Form_Map::for_form( (int) $form['id'] );
 		$values = array(
-			$map['company']    => (string) get_user_meta( $user->ID, 'zpvp_company_name', true ),
+			$map['company']    => Companies::company_name_for_user( (int) $user->ID ),
 			$map['email']      => $user->user_email,
 			$map['first_name'] => $user->first_name,
 			$map['last_name']  => $user->last_name,

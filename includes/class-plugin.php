@@ -40,15 +40,20 @@ final class Plugin {
 		( new Account() )->register();
 		( new Menu() )->register();
 		( new Conferences() )->register();
+		( new Field_Maps() )->register();
 		( new Registration_Sync() )->register();
 		( new Annual_Form() )->register();
 		( new Series() )->register();
 		( new Vendor_Attendees() )->register();
 		( new Badges() )->register();
+		( new Companies() )->register();
+		( new Badge_Orders() )->register();
 		( new Documents() )->register();
 		( new Notifications() )->register();
+		( new Change_Notices() )->register();
 		Admin_Messages::register_worker();
 		( new Rest() )->register();
+		( new Builder() )->register();
 		if ( is_admin() ) {
 			( new Admin() )->register();
 			( new Admin_Badges() )->register();
@@ -57,6 +62,7 @@ final class Plugin {
 			( new Admin_App() )->register();
 			( new Admin_Settings() )->register();
 			( new Setup() )->register();
+			( new Historical() )->register();
 		}
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue' ) );
 	}

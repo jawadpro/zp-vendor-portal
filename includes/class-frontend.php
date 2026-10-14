@@ -63,7 +63,7 @@ final class Frontend {
 	/** Wrap vendor content in the portal shell. */
 	public static function shell( string $active, string $inner ): string {
 		$user    = wp_get_current_user();
-		$company = (string) get_user_meta( $user->ID, 'zpvp_company_name', true );
+		$company = Companies::company_name_for_user( (int) $user->ID );
 		$items   = array(
 			'dashboard' => array( __( 'My conferences', 'zp-vendor-portal' ), Settings::page_url( 'dashboard' ) ),
 			'account'   => array( __( 'Account', 'zp-vendor-portal' ), add_query_arg( 'view', 'account', Settings::page_url( 'dashboard' ) ) ),

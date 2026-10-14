@@ -43,6 +43,7 @@ final class Registrations {
 			series_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			year smallint(4) unsigned NOT NULL DEFAULT 0,
 			user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			company_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			company_name varchar(255) NOT NULL DEFAULT '',
 			contact_name varchar(255) NOT NULL DEFAULT '',
 			contact_email varchar(190) NOT NULL DEFAULT '',
@@ -67,6 +68,7 @@ final class Registrations {
 			UNIQUE KEY entry_series (gf_entry_id,series_id),
 			KEY edition_id (edition_id),
 			KEY user_id (user_id),
+			KEY company_id (company_id),
 			KEY series_year (series_id,year),
 			KEY payment_status (payment_status)
 			) {$charset};"
@@ -165,12 +167,9 @@ final class Registrations {
 		return $row ? $row : null;
 	}
 
-	/** @return object[] */
+	/** @return object[] The vendor's registrations and their company's. */
 	public static function for_user( int $user_id ): array {
-		global $wpdb;
-		return (array) $wpdb->get_results(
-			$wpdb->prepare( 'SELECT * FROM ' . self::table() . " WHERE user_id = %d AND status = 'active' ORDER BY year DESC, created_at DESC", $user_id )
-		);
+		return Companies::registrations_for_user( $user_id );
 	}
 
 	public static function booths_taken( int $edition_id ): int {
@@ -249,6 +248,10 @@ final class Registrations {
 				$args[]  = $filters['payment'];
 			}
 		}
+		if ( ! empty( $filters['category'] ) ) {
+			$companies = Companies::in_categories( (array) $filters['category'] );
+			$where[]   = $companies ? "{$c}company_id IN (" . implode( ',', array_map( 'intval', $companies ) ) . ')' : '1=0';
+		}
 		if ( isset( $filters['search'] ) && '' !== $filters['search'] ) {
 			$like    = '%' . $wpdb->esc_like( $filters['search'] ) . '%';
 			$where[] = "({$c}company_name LIKE %s OR {$c}contact_email LIKE %s OR {$c}contact_name LIKE %s)";
@@ -275,6 +278,7 @@ final class Registrations {
 			'edition' => absint( $_REQUEST['edition'] ?? 0 ),
 			'year'    => absint( $_REQUEST['year'] ?? 0 ),
 			'payment' => sanitize_key( $_REQUEST['payment'] ?? '' ),
+			'category' => absint( $_REQUEST['category'] ?? 0 ),
 			'search'  => sanitize_text_field( wp_unslash( $_REQUEST['s'] ?? '' ) ),
 			'from'    => $date( 'from' ),
 			'to'      => $date( 'to' ),

@@ -55,14 +55,20 @@ final class Mailer {
 		);
 	}
 
-	/** Unique, valid addresses for a registration: form contact plus the vendor account. */
+	/**
+	 * Unique, valid addresses for a registration: form contact plus the vendor
+	 * account, and every contact at the vendor's company (unless switched off).
+	 */
 	public static function recipients( object $reg ): array {
-		$emails = array( (string) $reg->contact_email );
-		if ( $reg->user_id ) {
+		$emails = array( (string) ( $reg->contact_email ?? '' ) );
+		if ( ! empty( $reg->user_id ) ) {
 			$user = get_userdata( (int) $reg->user_id );
 			if ( $user ) {
 				$emails[] = $user->user_email;
 			}
+		}
+		if ( ! empty( $reg->company_id ) && Companies::email_all_contacts() ) {
+			$emails = array_merge( $emails, Companies::contact_emails( (int) $reg->company_id ) );
 		}
 		$emails = array_map( 'strtolower', array_filter( array_map( 'trim', $emails ), 'is_email' ) );
 		return array_values( array_unique( $emails ) );

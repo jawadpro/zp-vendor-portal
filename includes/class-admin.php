@@ -225,13 +225,14 @@ final class Admin {
 		$rows = Registrations::export_rows( Registrations::request_filters() );
 		Csv::download(
 			'registrations-' . current_time( 'Y-m-d' ) . '.csv',
-			array( 'Registration ID', 'Conference', 'Year', 'Company', 'Contact', 'Email', 'Type', 'Booths', 'Booth #', 'Amount', 'Payment method', 'PO number', 'Payment status', 'Registered', 'Vendor account', 'Form ID', 'Entry ID' ),
+			array( 'Registration ID', 'Conference', 'Year', 'Company', 'Vendor categories', 'Contact', 'Email', 'Type', 'Booths', 'Booth #', 'Amount', 'Payment method', 'PO number', 'Payment status', 'Registered', 'Vendor account', 'Form ID', 'Entry ID' ),
 			array_map(
 				static fn( $r ) => array(
 					$r->id,
 					Registrations::conference_label( $r ),
 					$r->year,
 					$r->company_name,
+					implode( '; ', Companies::category_names( (int) $r->company_id ) ),
 					$r->contact_name,
 					$r->contact_email,
 					Registrations::type_label( (string) $r->type ),

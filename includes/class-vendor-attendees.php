@@ -23,7 +23,7 @@ final class Vendor_Attendees {
 	public static function owned( int $registration_id ): ?object {
 		$reg     = Registrations::get( $registration_id );
 		$user_id = (int) Roles::viewer()->ID;
-		return ( $reg && $user_id && (int) $reg->user_id === $user_id && 'active' === $reg->status ) ? $reg : null;
+		return ( $reg && Companies::user_can_access( $user_id, $reg ) ) ? $reg : null;
 	}
 
 	public function handle(): void {
@@ -54,6 +54,32 @@ final class Vendor_Attendees {
 		}
 		wp_safe_redirect( add_query_arg( 'zpvp_saved', 1, self::url( $rid ) ) );
 		exit;
+	}
+
+	/** Unpaid extra badges: pay online on the Name Badge Order Form, or download an invoice. */
+	private static function extra_badges( object $reg ): void {
+		$owed = Documents::owed_badges( $reg );
+		$pay  = Badge_Orders::order_url( (int) $reg->id );
+		if ( $owed ) {
+			echo '<div class="zpvp-notice zpvp-notice--warning"><p>';
+			echo esc_html( sprintf( /* translators: %s: amount */ __( 'Amount due for extra badges: %s.', 'zp-vendor-portal' ), '$' . number_format( $owed * Badge_Orders::price(), 2 ) ) );
+			echo '</p><p>';
+			if ( $pay ) {
+				echo '<a class="zpvp-btn zpvp-btn--accent" href="' . esc_url( $pay ) . '">' . esc_html__( 'Pay for extra badges', 'zp-vendor-portal' ) . '</a> ';
+			}
+			echo '<a class="zpvp-btn" href="' . esc_url( Documents::badge_invoice_url( (int) $reg->id ) ) . '" target="_blank" rel="noopener">' . esc_html__( 'Invoice for extra badges', 'zp-vendor-portal' ) . '<span class="screen-reader-text"> ' . esc_html__( '(PDF, opens in a new tab)', 'zp-vendor-portal' ) . '</span></a>';
+			echo '</p></div>';
+		} elseif ( $pay && ! Attendees::vendor_can_edit( $reg ) ) {
+			echo '<p><a class="zpvp-link" href="' . esc_url( $pay ) . '">' . esc_html__( 'Need more name badges? Order them here.', 'zp-vendor-portal' ) . '</a></p>';
+		}
+		$orders = Badge_Orders::for_registration( (int) $reg->id );
+		if ( $orders ) {
+			echo '<details class="zpvp-info"><summary>' . esc_html( sprintf( _n( '%d badge order', '%d badge orders', count( $orders ), 'zp-vendor-portal' ), count( $orders ) ) ) . '</summary><ul>';
+			foreach ( $orders as $o ) {
+				echo '<li>' . esc_html( sprintf( '%s, %s: %d additional, %d replacement. %s', Badge_Orders::KINDS[ $o->kind ] ?? '', mysql2date( 'M j, Y', $o->created_at ), (int) $o->additional_qty, (int) $o->replacement_qty, Registrations::payment_label( $o->payment_status ) ) ) . '</li>';
+			}
+			echo '</ul></details>';
+		}
 	}
 
 	public static function render( int $registration_id ): string {
@@ -101,6 +127,7 @@ final class Vendor_Attendees {
 
 		<h2><?php esc_html_e( 'Booth staff', 'zp-vendor-portal' ); ?></h2>
 		<p class="zpvp-badge-summary"><?php echo esc_html( Badges::summary( $reg ) ); ?></p>
+		<?php self::extra_badges( $reg ); ?>
 		<?php if ( $editable ) : ?>
 			<p class="zpvp-deadline"><?php echo esc_html( sprintf( __( 'You can make changes until %s. Name badges are printed from this list.', 'zp-vendor-portal' ), mysql2date( 'F j, Y g:i a', (string) $until ) ) ); ?></p>
 			<form method="post" class="zpvp-form zpvp-form--wide">

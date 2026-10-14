@@ -14,6 +14,7 @@ final class Admin_Reports {
 		add_action( 'admin_menu', array( $this, 'menu' ), 15 );
 		add_action( 'admin_post_zpvp_export_attendees', array( $this, 'export_attendees' ) );
 		add_action( 'admin_post_zpvp_export_badges', array( $this, 'export_badges' ) );
+		add_action( 'admin_post_zpvp_export_contacts', array( $this, 'export_contacts' ) );
 	}
 
 	public function menu(): void {
@@ -55,6 +56,7 @@ final class Admin_Reports {
 				'edition' => $f['edition'] ? $f['edition'] : null,
 				'year'    => $f['year'] ? $f['year'] : null,
 				'payment' => $f['payment'] ? $f['payment'] : null,
+				'category' => ! empty( $f['category'] ) ? $f['category'] : null,
 				's'       => '' !== $f['search'] ? $f['search'] : null,
 				'from'    => $f['from'] ? $f['from'] : null,
 				'to'      => $f['to'] ? $f['to'] : null,
@@ -109,6 +111,14 @@ final class Admin_Reports {
 						<option value="<?php echo esc_attr( $k ); ?>" <?php selected( $f['payment'], $k ); ?>><?php echo esc_html( $l ); ?></option>
 					<?php endforeach; ?>
 				</select>
+				<?php if ( Companies::all_categories() ) : ?>
+				<select name="category">
+					<option value="">All vendor categories</option>
+					<?php foreach ( Companies::all_categories() as $tid => $label ) : ?>
+						<option value="<?php echo (int) $tid; ?>" <?php selected( (int) $f['category'], (int) $tid ); ?>><?php echo esc_html( $label ); ?></option>
+					<?php endforeach; ?>
+				</select>
+				<?php endif; ?>
 				<input type="search" name="s" placeholder="Vendor, contact or email" value="<?php echo esc_attr( $f['search'] ); ?>">
 				<label>From <input type="date" name="from" value="<?php echo esc_attr( $f['from'] ); ?>"></label>
 				<label>To <input type="date" name="to" value="<?php echo esc_attr( $f['to'] ); ?>"></label>
@@ -169,7 +179,9 @@ final class Admin_Reports {
 				<a class="button" href="<?php echo esc_url( $this->export_url( 'zpvp_export_registrations', $f ) ); ?>">Registrations CSV</a>
 				<a class="button" href="<?php echo esc_url( $this->export_url( 'zpvp_export_attendees', $f ) ); ?>">Booth personnel CSV</a>
 				<a class="button" href="<?php echo esc_url( $this->export_url( 'zpvp_export_badges', $f ) ); ?>">Badges CSV</a>
+				<a class="button" href="<?php echo esc_url( $this->export_url( 'zpvp_export_contacts', $f ) ); ?>">Vendor contacts CSV</a>
 			</p>
+			<p class="description">Vendor contacts lists every contact at every vendor company with their categories and the last conference they registered for (only the category filter applies). Use it to import vendors into Mailchimp or Brevo.</p>
 		</div>
 		<?php
 	}
@@ -206,6 +218,37 @@ final class Admin_Reports {
 				),
 				$rows
 			)
+		);
+	}
+
+	/** Every contact at every vendor company (optionally one category): for mailing lists. */
+	public function export_contacts(): void {
+		global $wpdb;
+		$this->guard( 'zpvp_export_contacts' );
+		$category  = absint( $_GET['category'] ?? 0 );
+		$companies = $category ? Companies::in_categories( array( $category ) ) : array_map( 'intval', get_posts( array( 'post_type' => Companies::POST_TYPE, 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids' ) ) );
+		$rows      = array();
+		foreach ( $companies as $cid ) {
+			$last    = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . Registrations::table() . " WHERE company_id = %d AND status = 'active' ORDER BY year DESC, created_at DESC LIMIT 1", $cid ) );
+			$primary = Companies::primary_contact( $cid );
+			foreach ( Companies::contacts( $cid ) as $u ) {
+				$rows[] = array(
+					get_the_title( $cid ),
+					implode( '; ', Companies::category_names( $cid ) ),
+					$u->first_name,
+					$u->last_name,
+					$u->user_email,
+					(string) get_user_meta( $u->ID, 'zpvp_phone', true ),
+					(string) get_user_meta( $u->ID, 'zpvp_job_title', true ),
+					(int) $u->ID === $primary ? 'Yes' : 'No',
+					$last ? Registrations::conference_label( $last ) : '',
+				);
+			}
+		}
+		Csv::download(
+			'vendor-contacts-' . current_time( 'Y-m-d' ) . '.csv',
+			array( 'Company', 'Categories', 'First name', 'Last name', 'Email', 'Phone', 'Job title', 'Primary contact', 'Last conference' ),
+			$rows
 		);
 	}
 

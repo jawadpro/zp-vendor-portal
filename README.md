@@ -62,7 +62,7 @@ up: the next deploy overwrites the folder (`--delete`).
 - Fields are ACF local field groups defined in `class-conferences.php` (not editable in the ACF UI).
 - `Conferences::status()` returns not_scheduled / upcoming / open / sold_out / closed / past.
   Booth counts come from the `zpvp_edition_booths_taken` filter (wired up by the registration module).
-- **Vendor Portal → Setup** creates the initial series from the audit (`class-seeder.php`); re-running never duplicates.
+- **Vendor Portal → Setup** creates the Vendor Registration form and feed, reports missing plugins and connects existing conference forms as series.
 
 ## Registrations (v0.4.0)
 
@@ -269,6 +269,75 @@ up: the next deploy overwrites the folder (`--delete`).
 ## Activation goes to the vendor login (v0.20.2)
 
 - Activation links for the vendor registration form are handled by `Auth::activate_vendor()` (on `wp`, priority 5): the account is activated and the vendor is redirected to the vendor login page with "Your account is active" and their email filled in. Gravity Forms' own activation page (which links to wp-login.php) is no longer shown to vendors. Other forms' signups are untouched.
+
+## Conference Builder (v0.21.0)
+
+- **Vendor Portal → Conference Builder** (`admin.php?page=zpvp-builder&conference=ID`, `Builder` + `assets/js/builder.js`):
+  one screen to set up a conference in six steps (Event, Forms, Field connectors, Registration, Vendor information,
+  Review and publish). Also linked from each conference's row actions and edit screen ("Open in builder").
+- **Flow strip**: Gravity Forms → Field connectors → Conference → Vendor portal → Badges · Invoices · Emails. Each node
+  is green, amber or red from the same checks as the checklist; clicking it jumps to its step.
+- **Live checks and preview**: every change is posted to `POST zpvp/v1/builder/{id}/check`, which evaluates the
+  unsaved values with the plugin's own rules (status, routing to the newest published year, page detection, form on/off,
+  capacity, deadlines) and returns the checklist, flow, "What happens" lines and a preview of the vendor's view
+  (Open for registration card, exhibitor pass, conference information) in the same markup as My Conferences.
+  Nothing is saved until Save draft / Publish. Publishing is blocked while any check needs attention.
+- Forms, sponsorship forms and the annual dropdown are saved on the conference's **series** (they apply to every year).
+- **Field connectors** (`Field_Maps`, option `zpvp_field_maps`): per form, which field holds company, email, payment
+  method, total, booth personnel, badges and so on. The built-in template layouts in `Form_Map` apply automatically;
+  only connectors that differ are stored, and they are merged through the `zpvp_form_map` filter (priority 5), so
+  registration sync, prefill and documents use them. Missing required connectors are suggested from field types and
+  labels. **Test with last entry** (`GET builder/form/{id}/test`, `Registration_Sync::preview_entry()`) shows what the
+  latest entry would be recorded as, without saving anything.
+- REST (all require `zpvp_manage`): `GET builder`, `POST builder/new`, `GET|POST builder/{id}`, `POST builder/{id}/check`,
+  `GET|POST builder/form/{form}`, `GET builder/form/{form}/test`.
+
+## Badge orders (v0.22.0)
+
+- `Badge_Orders` connects the existing badge forms to registrations: Extra Representative Order Form, Name Badge Order Form,
+  Onsite Badges and Onsite Name Badge Change Form. They are recognised by title on install (option `zpvp_badge_forms`,
+  form ID => kind) and can be changed in **Vendor Portal → Badge orders → Badge forms**. Field layouts are in `Badge_Orders::LAYOUTS`.
+- Each submission is stored in `{prefix}zpvp_badge_orders` and linked to a registration: the one the vendor picked
+  (a "Which registration are these badges for?" select is added to the form for logged-in vendors, preselected from
+  `?registration=`), otherwise the only matching current registration by account, company, email, booth number and
+  conference name. Orders with no clear match wait under **Badge orders → Needs a registration** for staff to link or ignore.
+- Linking applies the order once: the people become booth staff (source `badge_form` or `onsite`), purchased and
+  replacement badges are added to the registration's paid badges, the badge queue is refreshed, a staff note is added and
+  `zpvp_badge_order_applied` fires. Card orders that haven't been paid are applied when Gravity Forms reports the payment.
+- Vendors with more people than badges see the amount due (price per badge in option `zpvp_badge_price`, default $100),
+  a **Pay for extra badges** link to the Name Badge Order Form page and an **Invoice for extra badges** PDF
+  (`Documents::build_badge_invoice()`, number `TCP-B-{id}`).
+
+## Vendor companies and categories (v0.22.0)
+
+- `Companies`: post type `zp_vendor_company` (Vendor Portal → Vendor companies) and hierarchical taxonomy
+  `zp_vendor_category` (Vendor Portal → Vendor categories; a starter list is added once). A vendor's company is user
+  meta `zpvp_company_id`; registrations store `company_id`.
+- On install every vendor gets a company from their company name and existing registrations are stamped. New vendors
+  get one when they register; renaming the company in Account renames it when they are its only contact.
+- Every contact of a company can see and manage its registrations, booth staff, invoices and badge orders
+  (`Companies::user_can_access()`); conference emails go to all contacts unless **Settings → Emails → Who receives them** turns it off.
+- Company screen: contacts (primary, remove, add by email), categories, registrations and **Merge** into another company.
+  Likely duplicates (same name ignoring case, punctuation and Inc/LLC/Co) are flagged on the companies list.
+- Category filters: staff dashboard, registrations CSV, reports and **Email vendors**. **Reports → Vendor contacts CSV**
+  exports every contact with company, categories and last conference (for Mailchimp or Brevo).
+
+## Messages and change notices (v0.22.0)
+
+- **Email vendors** can target a conference (all, unpaid, paid, or **companies that came last year but haven't registered
+  this year**) or **every vendor company**, optionally limited to a vendor category. `GET zpvp/v1/messages/audience`
+  shows how many companies and addresses will receive it before sending.
+- `Change_Notices`: when a published, upcoming conference's dates, venue, city, hotel, decorator or electricity
+  information, floor plan, documents or booth staff deadline change, one email listing the changes (with the previous
+  values) goes to its registered vendors 30 minutes after the last edit (cron `zpvp_send_change_notice`). The conference
+  screen shows what is pending with **Send now** and **Don't send**. Switch off in **Settings → Emails**.
+
+## Past registrations (v0.22.0)
+
+- **Vendor Portal → Past registrations** (`Historical`): links registrations recorded without an account to the vendor
+  with the same email, and imports conference and sponsorship form entries from before the portal for vendors whose
+  email matches (the annual form is left out). Entries are placed on the series' conference that started soonest after
+  the entry date. Nothing is emailed. Entries without a matching vendor are listed for manual linking.
 
 ## Header menu link
 

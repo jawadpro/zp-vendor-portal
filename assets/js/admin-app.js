@@ -17,7 +17,9 @@
 	const unpaid = [ 'awaiting', 'pending', 'failed' ];
 
 	async function api( path, opts = {} ) {
-		const res = await fetch( C.rest + path, {
+		// With plain permalinks the REST root already has a query string (?rest_route=/).
+		const url = C.rest.includes( '?' ) ? C.rest + path.replace( '?', '&' ) : C.rest + path;
+		const res = await fetch( url, {
 			method: opts.method || 'GET',
 			headers: { 'X-WP-Nonce': C.nonce, 'Content-Type': 'application/json' },
 			credentials: 'same-origin',
@@ -71,6 +73,7 @@
 		tab: url.get( 'tab' ) === 'badges' ? 'badges' : 'registrations',
 		payment: '',
 		search: '',
+		category: 0,
 		page: 1,
 		badgeStatus: 'queued',
 		selected: new Set(),
@@ -190,6 +193,15 @@
 		}
 	} );
 
+	const categorySelect = $( '#zpvp-category' );
+	if ( categorySelect ) {
+		categorySelect.addEventListener( 'change', () => {
+			state.category = parseInt( categorySelect.value, 10 ) || 0;
+			state.page = 1;
+			loadRegistrations();
+		} );
+	}
+
 	$( '#zpvp-search' ).addEventListener( 'input', debounce( ( ev ) => {
 		state.search = ev.target.value.trim();
 		state.page = 1;
@@ -201,6 +213,7 @@
 			edition: state.edition || '',
 			payment: state.payment,
 			s: state.search,
+			category: state.category || '',
 		} ).toString();
 	}
 
@@ -210,6 +223,7 @@
 			<td class="zpvp-col-company"><strong>${ esc( r.company || '(no company)' ) }</strong>
 				<span class="zpvp-sub">${ esc( [ r.contact, r.email ].filter( Boolean ).join( ', ' ) ) }</span>
 				${ showConf ? `<span class="zpvp-sub">${ esc( r.conference ) }</span>` : '' }
+				${ r.categories && r.categories.length ? `<span class="zpvp-sub">${ esc( r.categories.join( ', ' ) ) }</span>` : '' }
 				${ r.has_account ? '' : '<span class="zpvp-sub zpvp-warn">No vendor account linked</span>' }</td>
 			<td>${ r.booths }</td>
 			<td><input type="text" class="zpvp-booth-input" value="${ esc( r.booth_number ) }" placeholder="Assign" aria-label="Booth number for ${ esc( r.company ) }" data-booth="${ r.id }"></td>
@@ -226,7 +240,7 @@
 		table.classList.add( 'is-loading' );
 		updateExportLink();
 		try {
-			const d = await api( '/registrations' + query( { edition: state.edition, payment: state.payment, search: state.search, page: state.page } ) );
+			const d = await api( '/registrations' + query( { edition: state.edition, payment: state.payment, search: state.search, category: state.category, page: state.page } ) );
 			state.rows = d.rows;
 			renderPayChips( d.counts );
 			$( '[data-count="registrations"]' ).textContent = d.counts.all || '';
@@ -343,13 +357,14 @@
 
 			<dl class="zpvp-facts">
 				<div><dt>Contact</dt><dd>${ esc( r.contact ) }<br><a href="mailto:${ esc( r.email ) }">${ esc( r.email ) }</a></dd></div>
-				<div><dt>Vendor account</dt><dd>${ r.vendor_url ? `<a href="${ esc( r.vendor_url ) }">View account</a>` : 'None linked' }</dd></div>
+				<div><dt>Vendor account</dt><dd>${ r.vendor_url ? `<a href="${ esc( r.vendor_url ) }">View account</a>` : 'None linked' }${ r.company_url ? `<br><a href="${ esc( r.company_url ) }">Company</a>${ r.categories && r.categories.length ? ' <span class="zpvp-sub">' + esc( r.categories.join( ', ' ) ) + '</span>' : '' }` : '' }</dd></div>
 				<div><dt>Registration</dt><dd>${ esc( r.type ) }, ${ r.booths } booth${ r.booths === 1 ? '' : 's' }, ${ esc( r.created ) }</dd></div>
 				<div><dt>Amount</dt><dd>${ money( r.amount ) }<br><span class="zpvp-sub">${ esc( r.method ) }${ r.po ? ', PO ' + esc( r.po ) : '' }</span></dd></div>
 			</dl>
 			<p class="zpvp-drawer__links">
 				<a class="button" href="${ esc( r.document_url ) }" target="_blank" rel="noopener">${ esc( r.document_label ) }</a>
 				<a class="button" href="${ esc( r.entry_url ) }">Form entry</a>
+				${ r.badges_owed ? `<a class="button" href="${ esc( r.badge_invoice_url ) }" target="_blank" rel="noopener">Extra badges invoice (${ r.badges_owed })</a>` : '' }
 			</p>
 
 			<form class="zpvp-form zpvp-drawer__section" id="zpvp-reg-form">
@@ -366,7 +381,7 @@
 
 			<div class="zpvp-drawer__section">
 				<h3>Booth staff <span class="zpvp-count">${ r.attendees.length }</span></h3>
-				<p class="zpvp-sub">${ esc( r.badge_summary ) }${ r.deadline ? ' Vendor can edit until ' + esc( r.deadline ) + '.' : '' }</p>
+				<p class="zpvp-sub">${ esc( r.badge_summary ) }${ r.deadline ? ' Vendor can edit until ' + esc( r.deadline ) + '.' : '' }${ r.badge_orders ? ' ' + r.badge_orders + ' badge order' + ( r.badge_orders === 1 ? '' : 's' ) + ' linked.' : '' }</p>
 				<div class="zpvp-rep" id="zpvp-rep">
 					<div class="zpvp-rep__head" aria-hidden="true"><span>Name</span><span>Title</span><span>Email</span><span></span></div>
 					${ r.attendees.map( staffRow ).join( '' ) }
@@ -594,10 +609,47 @@
 	const modal = $( '#zpvp-modal' );
 	const composeEdition = $( '#zpvp-c-edition' );
 	fillEditionSelect( composeEdition, false );
+	composeEdition.insertAdjacentHTML( 'beforeend', '<option value="0">Every vendor company (not one conference)</option>' );
+
+	// "Sends to N" under the form, refreshed whenever the audience changes.
+	const updateAudience = debounce( async () => {
+		const form = $( '#zpvp-compose' );
+		const out = $( '#zpvp-c-count' );
+		const data = Object.fromEntries( new FormData( form ).entries() );
+		const company = data.edition === '0';
+		$( '#zpvp-c-aud' ).disabled = company;
+		try {
+			const d = await api( '/messages/audience' + query( { edition: data.edition, audience: data.audience, category: data.category } ) );
+			out.textContent = d.label;
+		} catch ( e ) {
+			out.textContent = '';
+		}
+	}, 200 );
+	// Swap the starter text when switching between one conference and every company, unless it was edited.
+	const TEMPLATE_CONF = 'Hi {first_name},\n\nWe have an update about {conference} ({dates}):\n\n[Describe the change here.]\n\nYou can review your registration and booth staff at {portal_link}\n\nThank you,\nZacPubs';
+	const TEMPLATE_ALL = 'Hi {first_name},\n\n[Write your message here.]\n\nYou can see your conferences at {portal_link}\n\nThank you,\nZacPubs';
+	composeEdition.addEventListener( 'change', () => {
+		const body = $( '#zpvp-c-body' );
+		const all = composeEdition.value === '0';
+		if ( body.value === ( all ? TEMPLATE_CONF : TEMPLATE_ALL ) ) {
+			body.value = all ? TEMPLATE_ALL : TEMPLATE_CONF;
+		}
+		const subject = $( '#zpvp-c-subject' );
+		const e = C.editions.find( ( x ) => x.id === parseInt( composeEdition.value, 10 ) );
+		if ( subject.value.startsWith( 'Update: ' ) || ! subject.value ) {
+			subject.value = e ? 'Update: ' + e.title : '';
+		}
+	} );
+	[ '#zpvp-c-edition', '#zpvp-c-aud', '#zpvp-c-cat' ].forEach( ( sel ) => {
+		const el = $( sel );
+		if ( el ) {
+			el.addEventListener( 'change', updateAudience );
+		}
+	} );
 
 	function openCompose() {
 		lastFocus = document.activeElement;
-		const id = state.edition || ( C.editions[ 0 ] && C.editions[ 0 ].id );
+		const id = parseInt( state.edition, 10 ) || ( C.editions[ 0 ] && C.editions[ 0 ].id );
 		composeEdition.value = String( id || '' );
 		const e = C.editions.find( ( x ) => x.id === parseInt( composeEdition.value, 10 ) );
 		const subject = $( '#zpvp-c-subject' );
@@ -606,9 +658,10 @@
 			subject.value = 'Update: ' + e.title;
 		}
 		if ( ! body.value ) {
-			body.value = 'Hi {first_name},\n\nWe have an update about {conference} ({dates}):\n\n[Describe the change here.]\n\nYou can review your registration and booth staff at {portal_link}\n\nThank you,\nZacPubs';
+			body.value = TEMPLATE_CONF;
 		}
 		modal.hidden = false;
+		updateAudience();
 		document.body.classList.add( 'zpvp-noscroll' );
 		$( '.zpvp-modal__box' ).focus();
 	}
