@@ -55,6 +55,90 @@ final class Admin_Messages {
 		return (array) $wpdb->get_results( $wpdb->prepare( $sql . ' ORDER BY company_name', $edition_id ) );
 	}
 
+	/**
+	 * Who a message goes to. With a conference: its registrations, narrowed by
+	 * payment ("paid", "unpaid") or "lapsed" (companies that registered for the
+	 * same event last year but not this year), and by vendor category. With no
+	 * conference (0): every vendor company, or those in the category.
+	 *
+	 * @return string[] Targets: "r{registration ID}" or "c{company ID}".
+	 */
+	public static function targets( int $edition_id, string $audience, int $category = 0 ): array {
+		global $wpdb;
+		$in_cat = $category ? array_flip( Companies::in_categories( array( $category ) ) ) : null;
+
+		if ( ! $edition_id ) {
+			$companies = $category ? array_keys( $in_cat ) : array_map( 'intval', get_posts( array( 'post_type' => Companies::POST_TYPE, 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids' ) ) );
+			return array_map( static fn( $c ) => 'c' . $c, array_values( array_filter( $companies, static fn( $c ) => (bool) Companies::contacts( (int) $c ) ) ) );
+		}
+
+		if ( 'lapsed' === $audience ) {
+			$series = (int) get_post_meta( $edition_id, 'series', true );
+			$year   = (int) get_post_meta( $edition_id, 'year', true );
+			if ( ! $series || ! $year ) {
+				return array();
+			}
+			$table = Registrations::table();
+			$last  = array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT company_id FROM {$table} WHERE series_id = %d AND year = %d AND status = 'active' AND company_id > 0", $series, $year - 1 ) ) );
+			$now   = array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT company_id FROM {$table} WHERE series_id = %d AND year = %d AND status = 'active' AND company_id > 0", $series, $year ) ) );
+			$out   = array_diff( $last, $now );
+			if ( null !== $in_cat ) {
+				$out = array_filter( $out, static fn( $c ) => isset( $in_cat[ $c ] ) );
+			}
+			return array_map( static fn( $c ) => 'c' . $c, array_values( $out ) );
+		}
+
+		$regs = self::registrations( $edition_id, $audience );
+		if ( null !== $in_cat ) {
+			$regs = array_filter( $regs, static fn( $r ) => isset( $in_cat[ (int) $r->company_id ] ) );
+		}
+		return array_map( static fn( $r ) => 'r' . (int) $r->id, array_values( $regs ) );
+	}
+
+	/** A registration, or a stand-in for a company (its primary contact), for personalising a message. */
+	public static function target_object( string $target, int $edition_id ): ?object {
+		$id = (int) substr( $target, 1 );
+		if ( 'c' !== ( $target[0] ?? '' ) ) {
+			return Registrations::get( $id ? $id : (int) $target );
+		}
+		if ( Companies::POST_TYPE !== get_post_type( $id ) ) {
+			return null;
+		}
+		$primary  = Companies::primary_contact( $id );
+		$contacts = Companies::contacts( $id );
+		$user     = $primary ? get_userdata( $primary ) : ( $contacts ? $contacts[0] : null );
+		return (object) array(
+			'id'            => 0,
+			'user_id'       => $user ? (int) $user->ID : 0,
+			'company_id'    => $id,
+			'company_name'  => (string) get_post_field( 'post_title', $id ),
+			'contact_name'  => $user ? $user->display_name : '',
+			'contact_email' => $user ? $user->user_email : '',
+			'edition_id'    => $edition_id,
+			'series_id'     => $edition_id ? (int) get_post_meta( $edition_id, 'series', true ) : 0,
+			'year'          => $edition_id ? (int) get_post_meta( $edition_id, 'year', true ) : 0,
+			'booths'        => 0,
+			'booth_number'  => '',
+			'gf_entry_id'   => 0,
+		);
+	}
+
+	/** "Sends to 12 registrations (31 people)". */
+	public static function audience_label( array $targets, int $edition_id ): string {
+		$people = array();
+		foreach ( array_slice( $targets, 0, 2000 ) as $t ) {
+			$o = self::target_object( $t, $edition_id );
+			if ( $o ) {
+				$people = array_merge( $people, Mailer::recipients( $o ) );
+			}
+		}
+		$people = count( array_unique( $people ) );
+		$noun   = $edition_id && ! str_starts_with( (string) ( $targets[0] ?? 'r' ), 'c' ) ? 'registration' : 'company';
+		return 0 === count( $targets )
+			? 'Nobody matches these choices.'
+			: sprintf( 'Sends to %d %s%s (%d email address%s).', count( $targets ), $noun, 1 === count( $targets ) ? '' : ( 'company' === $noun ? 'ies' : 's' ), $people, 1 === $people ? '' : 'es' );
+	}
+
 	public function render(): void {
 		global $wpdb;
 		$s        = Mailer::settings();
@@ -168,6 +252,10 @@ final class Admin_Messages {
 			),
 			false
 		);
+		if ( ! empty( $_POST['zpvp_recipients_form'] ) ) { // Only the Settings → Emails tab has these switches.
+			update_option( Companies::OPT_EMAIL, empty( $_POST['company_contacts'] ) ? 0 : 1, false );
+			Change_Notices::save_enabled( ! empty( $_POST['change_notices'] ) );
+		}
 		wp_safe_redirect( Admin_Settings::url( 'emails', array( 'zpvp_msg' => rawurlencode( 'Email settings saved.' ) ) ) );
 		exit;
 	}
@@ -181,7 +269,7 @@ final class Admin_Messages {
 		$audience = sanitize_key( $_POST['audience'] ?? 'all' );
 		$subject  = sanitize_text_field( wp_unslash( $_POST['subject'] ?? '' ) );
 		$body     = sanitize_textarea_field( wp_unslash( $_POST['body'] ?? '' ) );
-		$regs     = self::registrations( $edition, $audience );
+		$regs     = self::targets( $edition, $audience );
 		$back     = admin_url( 'admin.php?page=zpvp-messages&edition=' . $edition );
 
 		if ( ! $edition || '' === $subject || '' === $body ) {
@@ -190,7 +278,7 @@ final class Admin_Messages {
 		}
 
 		if ( 'test' === sanitize_key( $_POST['mode'] ?? '' ) ) {
-			$sample = $regs ? $regs[0] : (object) array( 'id' => 0, 'user_id' => 0, 'contact_name' => 'Sample Contact', 'company_name' => 'Sample Company', 'edition_id' => $edition, 'series_id' => 0, 'year' => 0, 'booths' => 1, 'booth_number' => '', 'gf_entry_id' => 0 );
+			$sample = ( $regs ? self::target_object( $regs[0], $edition ) : null ) ?? (object) array( 'id' => 0, 'user_id' => 0, 'contact_name' => 'Sample Contact', 'company_name' => 'Sample Company', 'edition_id' => $edition, 'series_id' => 0, 'year' => 0, 'booths' => 1, 'booth_number' => '', 'gf_entry_id' => 0 );
 			Mailer::send( array( wp_get_current_user()->user_email ), '[TEST] ' . Mailer::personalize( $subject, $sample ), self::format( Mailer::personalize( $body, $sample ) ), array(), array( 'type' => 'message_test', 'edition_id' => $edition ) );
 			wp_safe_redirect( add_query_arg( 'zpvp_msg', rawurlencode( 'Test sent to ' . wp_get_current_user()->user_email . '.' ), $back ) );
 			exit;
@@ -200,11 +288,11 @@ final class Admin_Messages {
 		update_option( $key, array( 'subject' => $subject, 'body' => $body, 'edition' => $edition ), false );
 
 		$queued = 0;
-		foreach ( $regs as $reg ) {
+		foreach ( $regs as $target ) {
 			if ( function_exists( 'as_enqueue_async_action' ) && count( $regs ) > 25 ) {
-				as_enqueue_async_action( self::ACTION, array( $key, (int) $reg->id ), 'zpvp' );
+				as_enqueue_async_action( self::ACTION, array( $key, $target ), 'zpvp' );
 			} else {
-				self::send_one( $key, (int) $reg->id );
+				self::send_one( $key, $target );
 			}
 			++$queued;
 		}
@@ -213,9 +301,9 @@ final class Admin_Messages {
 		exit;
 	}
 
-	public static function send_one( $key, $registration_id ): void {
+	public static function send_one( $key, $target ): void {
 		$msg = get_option( (string) $key );
-		$reg = Registrations::get( (int) $registration_id );
+		$reg = is_array( $msg ) ? self::target_object( is_numeric( $target ) ? 'r' . (int) $target : (string) $target, (int) $msg['edition'] ) : null;
 		if ( ! is_array( $msg ) || ! $reg ) {
 			return;
 		}

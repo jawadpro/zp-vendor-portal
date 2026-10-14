@@ -107,6 +107,15 @@
 }
 .zpvp-notice--success { border-left-color: #1d7a4b; background: #eef7f1; }
 .zpvp-notice--error { border-left-color: var(--zpvp-red); background: #fbeeee; }
+.zpvp-notice--warning { border-left-color: #c98a00; background: #fff8e6; }
+.zpvp-notice p { margin: 0 0 8px; }
+.zpvp-notice p:last-child { margin-bottom: 0; }
+.zpvp-pass__by { margin: 0 0 6px; font-size: 13px; color: #5b6573; }
+.zpvp-badge-picker { margin: 0 0 20px; padding: 14px 16px; border: 1px solid #d8dde3; border-radius: 6px; background: #f7f9fb; }
+.zpvp-badge-picker label { display: block; font-weight: 600; margin-bottom: 6px; }
+.zpvp-badge-picker select { width: 100%; max-width: 480px; }
+.zpvp-badge-picker .zpvp-help { margin: 6px 0 0; font-size: 13px; color: #5b6573; }
+.zpvp-company__people { margin: 0; padding-left: 18px; }
 
 /* ---------- Forms ---------- */
 .zpvp label { display: block; font-weight: 700; font-size: .9rem; margin-bottom: .3em; color: var(--zpvp-ink); }

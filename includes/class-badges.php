@@ -240,8 +240,8 @@ final class Badges {
 			$count
 		);
 		if ( $owed ) {
-			/* translators: %d: number of badges */
-			$text .= ' ' . sprintf( _n( '%d additional badge will be invoiced by ZacPubs.', '%d additional badges will be invoiced by ZacPubs.', $owed, 'zp-vendor-portal' ), $owed );
+			/* translators: 1: number of badges, 2: price per badge */
+			$text .= ' ' . sprintf( _n( '%1$d additional badge still needs to be paid for (%2$s each).', '%1$d additional badges still need to be paid for (%2$s each).', $owed, 'zp-vendor-portal' ), $owed, '$' . number_format( Badge_Orders::price(), 2 ) );
 		}
 		return $text;
 	}

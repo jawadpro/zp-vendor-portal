@@ -16,7 +16,11 @@ final class Admin_App {
 		'zpvp',
 		'zpvp-builder',
 		'edit.php?post_type=zp_conf_edition',
+		'zpvp-badge-orders',
+		'edit.php?post_type=zp_vendor_company',
+		'edit-tags.php?taxonomy=zp_vendor_category&post_type=zp_vendor_company',
 		'zpvp-reports',
+		'zpvp-historical',
 		'zpvp-settings',
 	);
 
@@ -114,6 +118,7 @@ final class Admin_App {
 				'statuses'   => $statuses,
 				'newConf'    => admin_url( 'post-new.php?post_type=' . Conferences::EDITION ),
 				'reports'    => admin_url( 'admin.php?page=zpvp-reports' ),
+				'categories' => Companies::all_categories(),
 				'exportUrl'  => add_query_arg(
 					array(
 						'action'   => 'zpvp_export_registrations',
@@ -123,6 +128,18 @@ final class Admin_App {
 				),
 			)
 		);
+	}
+
+	private static function category_select( string $id, string $name, string $all, string $aria ): void {
+		$cats = Companies::all_categories();
+		if ( ! $cats ) {
+			return;
+		}
+		echo '<select id="' . esc_attr( $id ) . '"' . ( $name ? ' name="' . esc_attr( $name ) . '"' : '' ) . ( $aria ? ' aria-label="' . esc_attr( $aria ) . '"' : '' ) . '><option value="0">' . esc_html( $all ) . '</option>';
+		foreach ( $cats as $tid => $label ) {
+			echo '<option value="' . (int) $tid . '">' . esc_html( $label ) . '</option>';
+		}
+		echo '</select>';
 	}
 
 	public function render(): void {
@@ -154,6 +171,7 @@ final class Admin_App {
 			<section class="zpvp-panel" id="zpvp-panel-registrations" role="tabpanel" aria-labelledby="zpvp-tab-registrations">
 				<div class="zpvp-toolbar">
 					<input type="search" id="zpvp-search" class="zpvp-search" placeholder="Search company, contact or email" aria-label="Search registrations">
+					<?php self::category_select( 'zpvp-category', '', 'All vendor categories', 'Vendor category' ); ?>
 					<div class="zpvp-chips" id="zpvp-pay-chips" role="group" aria-label="Payment filter"></div>
 					<a class="button zpvp-export" id="zpvp-export" href="#">Export CSV</a>
 				</div>
@@ -164,6 +182,8 @@ final class Admin_App {
 			<section class="zpvp-panel" id="zpvp-panel-badges" role="tabpanel" aria-labelledby="zpvp-tab-badges" hidden>
 				<div class="zpvp-toolbar">
 					<div class="zpvp-chips" id="zpvp-badge-chips" role="group" aria-label="Badge filter"></div>
+					<?php $unmatched = Badge_Orders::unmatched_count(); ?>
+					<a class="button" href="<?php echo esc_url( Badge_Orders::url( array( 'view' => $unmatched ? 'unmatched' : 'all' ) ) ); ?>">Badge orders<?php echo $unmatched ? ' (' . (int) $unmatched . ' need a registration)' : ''; ?></a>
 				</div>
 				<div class="zpvp-bulkbar" id="zpvp-bulkbar">
 					<span id="zpvp-selected"></span>
@@ -193,7 +213,12 @@ final class Admin_App {
 								<option value="all">All registered vendors</option>
 								<option value="paid">Paid only</option>
 								<option value="unpaid">Payment outstanding only</option>
+								<option value="lapsed">Exhibited last year, not registered yet</option>
 							</select></p>
+						<?php if ( Companies::all_categories() ) : ?>
+							<p><label for="zpvp-c-cat">Vendor category</label><?php self::category_select( 'zpvp-c-cat', 'category', 'Any category', '' ); ?></p>
+						<?php endif; ?>
+						<p class="description" id="zpvp-c-count" aria-live="polite"></p>
 						<p><label for="zpvp-c-subject">Subject</label><input id="zpvp-c-subject" name="subject" type="text" required></p>
 						<p><label for="zpvp-c-body">Message</label><textarea id="zpvp-c-body" name="body" rows="9" required></textarea>
 							<span class="description">Placeholders: {first_name} {company} {conference} {dates} {booth_number} {portal_link}. Each vendor gets a personal copy.</span></p>

@@ -78,6 +78,25 @@ final class Account {
 		return '<input type="hidden" name="zpvp_action" value="' . esc_attr( $action ) . '"><input type="hidden" name="_zpvp_nonce" value="' . esc_attr( wp_create_nonce( 'zpvp_' . $action ) ) . '">';
 	}
 
+	/** The vendor's company: name, categories and the colleagues who share its registrations. */
+	private static function company_panel( int $user_id ): string {
+		$cid = Companies::company_for_user( $user_id );
+		if ( ! $cid ) {
+			return '';
+		}
+		$primary  = Companies::primary_contact( $cid );
+		$contacts = Companies::contacts( $cid );
+		$cats     = Companies::category_names( $cid );
+		$out      = '<section class="zpvp-panel zpvp-company"><h2>' . esc_html__( 'Your company', 'zp-vendor-portal' ) . '</h2>';
+		$out     .= '<p><strong>' . esc_html( get_post_field( 'post_title', $cid ) ) . '</strong>' . ( $cats ? '<br>' . esc_html( implode( ', ', $cats ) ) : '' ) . '</p>';
+		$out     .= '<p>' . esc_html__( 'Everyone listed here can see and manage your company\'s conference registrations, booth staff, invoices and badges, and receives conference emails.', 'zp-vendor-portal' ) . '</p><ul class="zpvp-company__people">';
+		foreach ( $contacts as $u ) {
+			$out .= '<li>' . esc_html( $u->display_name . ' (' . $u->user_email . ')' . ( (int) $u->ID === $primary ? ' – ' . __( 'primary contact', 'zp-vendor-portal' ) : '' ) ) . '</li>';
+		}
+		$out .= '</ul><p class="zpvp-help">' . esc_html__( 'To add or remove a colleague, contact ZacPubs. Colleagues need their own vendor account first.', 'zp-vendor-portal' ) . '</p></section>';
+		return $out;
+	}
+
 	public static function render(): string {
 		$user  = wp_get_current_user();
 		$saved = sanitize_key( $_GET['saved'] ?? '' );
@@ -124,6 +143,8 @@ final class Account {
 				<p><label for="zpvp-conf"><?php esc_html_e( 'Confirm new password', 'zp-vendor-portal' ); ?></label><input id="zpvp-conf" name="confirm_password" type="password" autocomplete="new-password" minlength="10" required></p>
 				<p><button type="submit" class="zpvp-btn"><?php esc_html_e( 'Change password', 'zp-vendor-portal' ); ?></button></p>
 			</form>
+
+			<?php echo self::company_panel( (int) $user->ID ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped inside. ?>
 		</div>
 		<?php
 		return (string) ob_get_clean();

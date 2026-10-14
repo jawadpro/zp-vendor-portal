@@ -383,6 +383,7 @@ final class Admin_Settings {
 		?>
 		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<input type="hidden" name="action" value="zpvp_email_settings">
+			<input type="hidden" name="zpvp_recipients_form" value="1">
 			<?php wp_nonce_field( 'zpvp_email_settings' ); ?>
 
 			<?php self::card_open( 'Automatic emails', 'Sent to the vendor\'s contact email and account email. Each email is sent only once per registration, so re-saving or re-processing never sends duplicates.' ); ?>
@@ -397,6 +398,11 @@ final class Admin_Settings {
 			);
 			self::toggle( 'confirm_registration', (bool) $s['confirm_registration'], 'Registration confirmation', '<strong>When:</strong> right after a vendor submits a conference form. Includes the invoice as a PDF. Keep this <strong>off</strong> while the conference forms still send their own Gravity Forms confirmation, or vendors get two emails.' );
 			?>
+			<?php self::card_close(); ?>
+
+			<?php self::card_open( 'Who receives them', 'Portal emails (confirmations, receipts, reminders and the messages you send to a conference\'s vendors) go to the person who registered and the vendor account. Companies can have several contacts; choose whether they all get a copy.' ); ?>
+			<?php self::toggle( 'company_contacts', Companies::email_all_contacts(), 'Every contact at the company', 'When <strong>on</strong>, every contact listed on the vendor company also receives conference emails. When <strong>off</strong>, only the person who registered does.' ); ?>
+			<?php self::toggle( 'change_notices', (bool) Change_Notices::settings()['enabled'], 'Conference change notices', '<strong>When:</strong> staff change a published conference\'s dates, venue, city, hotel, decorator, electricity information, floor plan, documents or booth staff deadline. Registered vendors get one email listing what changed, sent ' . (int) Change_Notices::settings()['delay'] . ' minutes after the last edit so several edits go out together. It can be cancelled from the conference screen before it goes.' ); ?>
 			<?php self::card_close(); ?>
 
 			<?php self::card_open( 'Replies', 'When a vendor replies to any portal email, the reply goes to this address. Use a shared inbox that someone checks, for example conferences@zacpubs.com.' ); ?>

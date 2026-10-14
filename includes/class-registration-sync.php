@@ -10,6 +10,14 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Registration_Sync {
 
+	/**
+	 * Set while importing past entries (Historical): the vendor, conference and
+	 * year to record, and no "entry processed" action (so no emails are sent).
+	 *
+	 * @var array{user_id?:int, edition?:int, year?:int}|null
+	 */
+	public static ?array $import = null;
+
 	public function register(): void {
 		add_action( 'gform_after_submission', array( $this, 'on_submission' ), 20, 2 );
 		add_action( 'gform_post_payment_completed', array( $this, 'on_payment_completed' ), 10, 2 );
@@ -30,24 +38,28 @@ final class Registration_Sync {
 		}
 
 		if ( $form_id === Form_Map::annual_form_id() ) {
-			$this->record_annual( $entry, $form );
-			do_action( 'zpvp_entry_processed', (int) $entry['id'] );
+			if ( null === self::$import ) {
+				$this->record_annual( $entry, $form );
+				do_action( 'zpvp_entry_processed', (int) $entry['id'] );
+			}
 			return;
 		}
 
 		// The conference that chose this form (newest published one if several).
 		// The series that owns this form, and its newest published conference (0 if none yet).
-		$edition = Conferences::for_form( $form_id );
+		$edition = isset( self::$import['edition'] ) ? (int) self::$import['edition'] : Conferences::for_form( $form_id );
 		$series  = $edition ? (int) get_post_meta( $edition, 'series', true ) : Conferences::series_for_form( $form_id );
-		if ( ! $series ) {
+		if ( ! $series || Form_Map::is_sponsorship_form( $form_id ) ) {
 			if ( Conferences::series_for_sponsorship_form( $form_id ) ) {
-				$this->record_sponsorship( $entry, $form, Conferences::for_sponsorship_form( $form_id ) );
-				do_action( 'zpvp_entry_processed', (int) $entry['id'] );
+				$this->record_sponsorship( $entry, $form, isset( self::$import['edition'] ) ? (int) self::$import['edition'] : Conferences::for_sponsorship_form( $form_id ) );
+				if ( null === self::$import ) {
+					do_action( 'zpvp_entry_processed', (int) $entry['id'] );
+				}
 			}
 			return;
 		}
 		$map    = Form_Map::for_form( $form_id );
-		$year   = (int) get_post_meta( $edition, 'year', true );
+		$year   = ! empty( self::$import['year'] ) ? (int) self::$import['year'] : (int) get_post_meta( $edition, 'year', true );
 		if ( ! $year ) {
 			$year = (int) substr( (string) $entry['date_created'], 0, 4 );
 		}
@@ -68,7 +80,9 @@ final class Registration_Sync {
 		if ( $registration_id && ! empty( $map['personnel'] ) ) {
 			Attendees::import_from_entry( $registration_id, $entry, (string) $map['personnel'] );
 		}
-		do_action( 'zpvp_entry_processed', (int) $entry['id'] );
+		if ( null === self::$import ) {
+			do_action( 'zpvp_entry_processed', (int) $entry['id'] );
+		}
 	}
 
 	/**
@@ -167,7 +181,7 @@ final class Registration_Sync {
 			}
 		}
 
-		$year = (int) get_post_meta( $edition, 'year', true );
+		$year = ! empty( self::$import['year'] ) ? (int) self::$import['year'] : (int) get_post_meta( $edition, 'year', true );
 		Registrations::create(
 			$this->common( $entry, $map ) + array(
 				'edition_id' => $edition,
@@ -291,6 +305,9 @@ final class Registration_Sync {
 	 * or (for staff entering it in WP Admin) the vendor with the entry's email.
 	 */
 	private function vendor_id( array $entry, array $map ): int {
+		if ( isset( self::$import['user_id'] ) ) {
+			return (int) self::$import['user_id'];
+		}
 		$current = wp_get_current_user();
 		if ( $current->exists() && Roles::is_vendor( $current ) ) {
 			return (int) $current->ID;
@@ -413,7 +430,7 @@ final class Registration_Sync {
 		}
 		$map    = Form_Map::for_form( (int) $form['id'] );
 		$values = array(
-			$map['company']    => (string) get_user_meta( $user->ID, 'zpvp_company_name', true ),
+			$map['company']    => Companies::company_name_for_user( (int) $user->ID ),
 			$map['email']      => $user->user_email,
 			$map['first_name'] => $user->first_name,
 			$map['last_name']  => $user->last_name,

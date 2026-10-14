@@ -16,8 +16,10 @@ final class Activator {
 		Pages::install();
 		Registrations::install();
 		Annual_Registrations::install();
+		Companies::install();
 		Attendees::install();
 		Badges::install();
+		Badge_Orders::install();
 		Mailer::install();
 		Notifications::schedule();
 		update_option( 'zpvp_version', ZPVP_VERSION, false );

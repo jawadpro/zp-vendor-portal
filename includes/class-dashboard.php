@@ -101,6 +101,9 @@ final class Dashboard {
 					<?php endif; ?>
 					<?php endif; ?>
 				</div>
+				<?php if ( (int) $reg->user_id && (int) $reg->user_id !== (int) Roles::viewer()->ID && $reg->contact_name ) : ?>
+					<p class="zpvp-pass__by"><?php echo esc_html( sprintf( __( 'Registered by %s', 'zp-vendor-portal' ), $reg->contact_name ) ); ?></p>
+				<?php endif; ?>
 				<dl class="zpvp-pass__facts">
 					<?php if ( 'sponsorship' !== $reg->type ) : ?><div><dt><?php esc_html_e( 'Booths', 'zp-vendor-portal' ); ?></dt><dd><?php echo esc_html( (string) $reg->booths ); ?></dd></div><?php endif; ?>
 					<div><dt><?php esc_html_e( 'Payment', 'zp-vendor-portal' ); ?></dt><dd><?php echo Frontend::pill( $reg->payment_status ); // phpcs:ignore WordPress.Security.EscapeOutput ?></dd></div>

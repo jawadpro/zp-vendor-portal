@@ -66,13 +66,18 @@ final class Documents {
 		}
 		$reg  = Registrations::get( $rid );
 		$user = wp_get_current_user();
-		$ok   = $reg && ( current_user_can( Roles::CAP_MANAGE ) || ( $user->exists() && (int) $reg->user_id === (int) $user->ID ) );
+		$ok   = $reg && ( current_user_can( Roles::CAP_MANAGE ) || ( $user->exists() && Companies::user_can_access( (int) $user->ID, $reg ) ) );
 		if ( ! $ok ) {
 			wp_die( esc_html__( 'You do not have access to this document.', 'zp-vendor-portal' ), '', array( 'response' => 403 ) );
 		}
 
-		$pdf      = self::build( $reg );
-		$filename = ( 'receipt' === self::kind( $reg ) ? 'receipt-' : 'invoice-' ) . self::number( $reg ) . '.pdf';
+		if ( isset( $_GET['badges'] ) ) {
+			$pdf      = self::build_badge_invoice( $reg );
+			$filename = 'invoice-' . self::badge_number( $reg ) . '.pdf';
+		} else {
+			$pdf      = self::build( $reg );
+			$filename = ( 'receipt' === self::kind( $reg ) ? 'receipt-' : 'invoice-' ) . self::number( $reg ) . '.pdf';
+		}
 		nocache_headers();
 		header( 'Content-Type: application/pdf' );
 		header( 'Content-Disposition: ' . ( isset( $_GET['download'] ) ? 'attachment' : 'inline' ) . '; filename="' . $filename . '"' );
@@ -129,9 +134,78 @@ final class Documents {
 	}
 
 	public static function build( object $reg ): string {
-		$regs   = self::entry_registrations( $reg );
-		$regs   = $regs ? $regs : array( $reg );
-		$kind   = self::kind( $reg );
+		$regs = self::entry_registrations( $reg );
+		$regs = $regs ? $regs : array( $reg );
+		[ $lines, $total ] = self::line_items( $reg, $regs );
+		return self::render(
+			array(
+				'reg'    => $reg,
+				'regs'   => $regs,
+				'kind'   => self::kind( $reg ),
+				'number' => self::number( $reg ),
+				'date'   => $reg->created_at,
+				'lines'  => $lines,
+				'total'  => $total,
+				'method' => Registrations::method_label( $reg->payment_method ),
+			)
+		);
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* Extra badges                                                        */
+	/* ------------------------------------------------------------------ */
+
+	/** Badges on a registration beyond what was included or bought. */
+	public static function owed_badges( object $reg ): int {
+		return count( array_filter( Badges::for_registration( (int) $reg->id ), static fn( $b ) => (int) $b->needs_payment ) );
+	}
+
+	public static function badge_number( object $reg ): string {
+		return 'TCP-B-' . (int) $reg->id;
+	}
+
+	public static function badge_invoice_url( int $registration_id ): string {
+		return add_query_arg(
+			array(
+				'zpvp_document' => $registration_id,
+				'badges'        => 1,
+				'_wpnonce'      => wp_create_nonce( 'zpvp_doc_' . $registration_id ),
+			),
+			Settings::page_url( 'dashboard' )
+		);
+	}
+
+	/** Invoice for additional badges that haven't been paid for. */
+	public static function build_badge_invoice( object $reg ): string {
+		$owed  = self::owed_badges( $reg );
+		$price = Badge_Orders::price();
+		return self::render(
+			array(
+				'reg'    => $reg,
+				'regs'   => array( $reg ),
+				'kind'   => 'invoice',
+				'number' => self::badge_number( $reg ),
+				'date'   => current_time( 'mysql' ),
+				'lines'  => array(
+					array(
+						'desc'   => __( 'Additional name badges', 'zp-vendor-portal' ) . ' – ' . Registrations::conference_label( $reg ),
+						'qty'    => $owed,
+						'unit'   => $price,
+						'amount' => $owed * $price,
+					),
+				),
+				'total'  => $owed * $price,
+				'method' => '',
+				'pay_url' => Badge_Orders::order_url( (int) $reg->id ),
+			)
+		);
+	}
+
+	/** Lay out an invoice or receipt. */
+	private static function render( array $doc ): string {
+		$reg    = $doc['reg'];
+		$regs   = $doc['regs'];
+		$kind   = $doc['kind'];
 		$pdf    = new Pdf();
 		$left   = 54;
 		$right  = Pdf::WIDTH - 54;
@@ -146,8 +220,8 @@ final class Documents {
 		// Title block (top right).
 		$pdf->text_right( $right, $y, 'receipt' === $kind ? 'RECEIPT' : 'INVOICE', 22, true );
 		$meta = array(
-			__( 'Number', 'zp-vendor-portal' ) => self::number( $reg ),
-			__( 'Date', 'zp-vendor-portal' )   => mysql2date( 'F j, Y', $reg->created_at ),
+			__( 'Number', 'zp-vendor-portal' ) => $doc['number'],
+			__( 'Date', 'zp-vendor-portal' )   => mysql2date( 'F j, Y', $doc['date'] ),
 		);
 		if ( 'receipt' === $kind ) {
 			$meta[ __( 'Status', 'zp-vendor-portal' ) ] = __( 'Paid', 'zp-vendor-portal' );
@@ -182,7 +256,8 @@ final class Documents {
 		}
 
 		// Line items.
-		[ $lines, $total ] = self::line_items( $reg, $regs );
+		$lines = $doc['lines'];
+		$total = (float) $doc['total'];
 		$y -= 14;
 		$pdf->box( $left, $y - 5, $right - $left, 20, 0.93 );
 		$pdf->text( $left + 6, $y + 1, __( 'Description', 'zp-vendor-portal' ), 9, true );
@@ -213,7 +288,7 @@ final class Documents {
 		$pdf->text_right( $right - 100, $y, __( 'Total', 'zp-vendor-portal' ), 11, true );
 		$pdf->text_right( $right - 6, $y, self::money( $total ), 11, true );
 		$y -= 16;
-		$method = Registrations::method_label( $reg->payment_method );
+		$method = (string) $doc['method'];
 		if ( 'receipt' === $kind ) {
 			$pdf->text_right( $right - 100, $y, __( 'Paid', 'zp-vendor-portal' ) . ( '—' !== $method ? ' (' . $method . ')' : '' ), 10 );
 			$pdf->text_right( $right - 6, $y, self::money( $total ), 10 );
@@ -229,9 +304,11 @@ final class Documents {
 		// Payment instructions (invoices only).
 		if ( 'invoice' === $kind ) {
 			$instructions = trim( (string) get_option( self::OPT_INSTRUCTIONS, '' ) );
-			$intro        = 'po' === $reg->payment_method
+			$intro        = ! empty( $doc['pay_url'] )
+				? sprintf( __( 'Pay online at %s, or by check using the details below.', 'zp-vendor-portal' ), $doc['pay_url'] )
+				: ( 'po' === $reg->payment_method
 				? sprintf( __( 'Payment method: invoice with PO number %s.', 'zp-vendor-portal' ), $reg->po_number ? $reg->po_number : '—' )
-				: sprintf( __( 'Payment method: %s.', 'zp-vendor-portal' ), $method );
+				: sprintf( __( 'Payment method: %s.', 'zp-vendor-portal' ), $method ) );
 			$pdf->text( $left, $y, strtoupper( __( 'Payment', 'zp-vendor-portal' ) ), 8.5, true, 0.4 );
 			$y -= 15;
 			foreach ( $pdf->wrap( $intro . ( $instructions ? "\n" . $instructions : '' ), $right - $left, 9.5 ) as $w ) {
@@ -242,7 +319,7 @@ final class Documents {
 
 		$pdf->line( $left, 60, $right, 60 );
 		$pdf->text( $left, 46, sprintf( __( 'Generated %s', 'zp-vendor-portal' ), wp_date( 'F j, Y g:i a' ) ), 8, false, 0.45 );
-		$pdf->text_right( $right, 46, self::number( $reg ), 8 );
+		$pdf->text_right( $right, 46, $doc['number'], 8 );
 
 		return $pdf->output();
 	}
