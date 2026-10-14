@@ -213,6 +213,63 @@ final class Registration_Sync {
 		return round( $total, 2 );
 	}
 
+	/**
+	 * What the portal would record from an entry, without saving anything.
+	 * Used by the Conference Builder's "Test with last entry".
+	 */
+	public function preview_entry( array $entry, array $form ): array {
+		$form_id = (int) ( $form['id'] ?? 0 );
+		$map     = Form_Map::for_form( $form_id );
+		$common  = $this->common( $entry, $map );
+		$out     = array(
+			'entry_id'       => (int) $entry['id'],
+			'date'           => mysql2date( 'M j, Y g:i a', (string) $entry['date_created'] ),
+			'company'        => $common['company_name'],
+			'contact'        => $common['contact_name'],
+			'email'          => $common['contact_email'],
+			'payment_method' => Registrations::method_label( $common['payment_method'] ),
+			'payment_status' => Registrations::payment_label( $common['payment_status'] ),
+			'po_number'      => $common['po_number'],
+			'total'          => $this->money( rgar( $entry, $map['total'] ?? '' ) ),
+			'bookings'       => array(),
+			'people'         => array(),
+		);
+
+		if ( $form_id === Form_Map::annual_form_id() ) {
+			$labels = Conferences::annual_dropdowns();
+			foreach ( Conferences::annual_fields() as $field_id ) {
+				[ $label, $price ] = array_pad( explode( '|', (string) rgar( $entry, (string) $field_id ), 2 ), 2, '0' );
+				if ( '' === $label || preg_match( '/^\s*select/i', $label ) || $this->money( $price ) <= 0 ) {
+					continue;
+				}
+				$out['bookings'][] = array(
+					'conference' => $labels[ $field_id ] ?? 'Field ' . $field_id,
+					'choice'     => $label,
+					'booths'     => $this->booths_from_label( $label ),
+					'amount'     => $this->money( $price ),
+				);
+			}
+			return $out;
+		}
+
+		$out['booths']          = $this->booth_count( $entry, $map );
+		$out['included_badges'] = $this->int_value( $entry, $map['included_badges'] ?? '' );
+		$out['paid_badges']     = $this->int_value( $entry, ! empty( $map['badge_product'] ) ? $map['badge_product'] . '.3' : '' );
+		if ( ! empty( $map['personnel'] ) ) {
+			$rows = maybe_unserialize( (string) rgar( $entry, (string) $map['personnel'] ) );
+			foreach ( is_array( $rows ) ? $rows : array() as $row ) {
+				// Same reading as Attendees::import_from_entry(): first column name, second title.
+				$values = is_array( $row ) ? array_values( $row ) : array( $row );
+				$name   = sanitize_text_field( (string) ( $values[0] ?? '' ) );
+				$title  = sanitize_text_field( (string) ( $values[1] ?? '' ) );
+				if ( '' !== $name ) {
+					$out['people'][] = $title ? $name . ', ' . $title : $name;
+				}
+			}
+		}
+		return $out;
+	}
+
 	/** Fields shared by every registration from one entry. */
 	private function common( array $entry, array $map ): array {
 		$method = $this->payment_method( $entry, $map );

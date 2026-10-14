@@ -40,6 +40,7 @@ final class Plugin {
 		( new Account() )->register();
 		( new Menu() )->register();
 		( new Conferences() )->register();
+		( new Field_Maps() )->register();
 		( new Registration_Sync() )->register();
 		( new Annual_Form() )->register();
 		( new Series() )->register();
@@ -49,6 +50,7 @@ final class Plugin {
 		( new Notifications() )->register();
 		Admin_Messages::register_worker();
 		( new Rest() )->register();
+		( new Builder() )->register();
 		if ( is_admin() ) {
 			( new Admin() )->register();
 			( new Admin_Badges() )->register();

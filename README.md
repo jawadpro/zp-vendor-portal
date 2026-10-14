@@ -270,6 +270,28 @@ up: the next deploy overwrites the folder (`--delete`).
 
 - Activation links for the vendor registration form are handled by `Auth::activate_vendor()` (on `wp`, priority 5): the account is activated and the vendor is redirected to the vendor login page with "Your account is active" and their email filled in. Gravity Forms' own activation page (which links to wp-login.php) is no longer shown to vendors. Other forms' signups are untouched.
 
+## Conference Builder (v0.21.0)
+
+- **Vendor Portal → Conference Builder** (`admin.php?page=zpvp-builder&conference=ID`, `Builder` + `assets/js/builder.js`):
+  one screen to set up a conference in six steps (Event, Forms, Field connectors, Registration, Vendor information,
+  Review and publish). Also linked from each conference's row actions and edit screen ("Open in builder").
+- **Flow strip**: Gravity Forms → Field connectors → Conference → Vendor portal → Badges · Invoices · Emails. Each node
+  is green, amber or red from the same checks as the checklist; clicking it jumps to its step.
+- **Live checks and preview**: every change is posted to `POST zpvp/v1/builder/{id}/check`, which evaluates the
+  unsaved values with the plugin's own rules (status, routing to the newest published year, page detection, form on/off,
+  capacity, deadlines) and returns the checklist, flow, "What happens" lines and a preview of the vendor's view
+  (Open for registration card, exhibitor pass, conference information) in the same markup as My Conferences.
+  Nothing is saved until Save draft / Publish. Publishing is blocked while any check needs attention.
+- Forms, sponsorship forms and the annual dropdown are saved on the conference's **series** (they apply to every year).
+- **Field connectors** (`Field_Maps`, option `zpvp_field_maps`): per form, which field holds company, email, payment
+  method, total, booth personnel, badges and so on. The built-in template layouts in `Form_Map` apply automatically;
+  only connectors that differ are stored, and they are merged through the `zpvp_form_map` filter (priority 5), so
+  registration sync, prefill and documents use them. Missing required connectors are suggested from field types and
+  labels. **Test with last entry** (`GET builder/form/{id}/test`, `Registration_Sync::preview_entry()`) shows what the
+  latest entry would be recorded as, without saving anything.
+- REST (all require `zpvp_manage`): `GET builder`, `POST builder/new`, `GET|POST builder/{id}`, `POST builder/{id}/check`,
+  `GET|POST builder/form/{form}`, `GET builder/form/{form}/test`.
+
 ## Header menu link
 
 `includes/class-menu.php` adds the vendor link to the end of the menu in the

@@ -14,6 +14,7 @@ final class Admin_App {
 	/** Menu order: daily work first, setup last. */
 	private const ORDER = array(
 		'zpvp',
+		'zpvp-builder',
 		'edit.php?post_type=zp_conf_edition',
 		'zpvp-reports',
 		'zpvp-settings',
@@ -31,7 +32,7 @@ final class Admin_App {
 	 */
 	public function quiet_screen(): void {
 		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-		if ( $screen && in_array( $screen->id, array( 'toplevel_page_zpvp', 'vendor-portal_page_zpvp-reports', 'vendor-portal_page_zpvp-settings' ), true ) ) {
+		if ( $screen && in_array( $screen->id, array( 'toplevel_page_zpvp', 'vendor-portal_page_zpvp-builder', 'vendor-portal_page_zpvp-reports', 'vendor-portal_page_zpvp-settings' ), true ) ) {
 			remove_all_actions( 'admin_notices' );
 			remove_all_actions( 'all_admin_notices' );
 			remove_all_actions( 'user_admin_notices' );
