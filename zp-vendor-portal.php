@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       ZP Vendor Portal
  * Description:       Vendor accounts, conference registrations, attendees, badges and staff tools for ZacPubs conferences.
- * Version:           0.23.0
+ * Version:           0.23.1
  * Requires at least: 6.5
  * Requires PHP:      8.1
  * Author:            Firelight Creative Development
@@ -11,7 +11,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'ZPVP_VERSION', '0.23.0' );
+define( 'ZPVP_VERSION', '0.23.1' );
 define( 'ZPVP_FILE', __FILE__ );
 define( 'ZPVP_PATH', plugin_dir_path( __FILE__ ) );
 define( 'ZPVP_URL', plugin_dir_url( __FILE__ ) );
