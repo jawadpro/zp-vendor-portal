@@ -677,7 +677,8 @@ final class Conferences {
 		if ( ! $id ) {
 			wp_die( 'The conference could not be copied.' );
 		}
-		wp_safe_redirect( add_query_arg( 'zpvp_copy', $created ? 'created' : 'exists', get_edit_post_link( $id, 'url' ) ) );
+		$back = 'builder' === sanitize_key( $_GET['back'] ?? '' ) ? Builder::url( (int) $id ) : add_query_arg( 'classic', 1, get_edit_post_link( $id, 'url' ) );
+		wp_safe_redirect( add_query_arg( 'zpvp_copy', $created ? 'created' : 'exists', $back ) );
 		exit;
 	}
 
