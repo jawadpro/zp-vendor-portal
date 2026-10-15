@@ -106,8 +106,8 @@ final class Change_Notices {
 
 	/** Remember a change (first old value, latest new value) and push the send back. */
 	private static function note( int $edition_id, string $key, $old, $new ): void {
-		if ( self::plain( $old ) === self::plain( $new ) && ! str_starts_with( $key, 'resource_files' ) && 'floor_plan' !== $key ) {
-			return; // Only formatting changed.
+		if ( self::plain( $old ) === self::plain( $new ) ) {
+			return; // Nothing (or only formatting) changed.
 		}
 		$pending = get_post_meta( $edition_id, self::PENDING, true );
 		$pending = is_array( $pending ) ? $pending : array();
@@ -233,13 +233,15 @@ final class Change_Notices {
 			wp_die( 'You are not allowed to do this.' );
 		}
 		check_admin_referer( 'zpvp_change_notice_' . $id );
+		$result = 'cancelled';
 		if ( 'send' === sanitize_key( $_GET['do'] ?? '' ) ) {
-			self::send( $id );
+			$result = self::send( $id ) ? 'sent' : 'none';
 		} else {
 			delete_post_meta( $id, self::PENDING );
 			wp_clear_scheduled_hook( self::HOOK, array( $id ) );
 		}
-		wp_safe_redirect( admin_url( 'post.php?action=edit&post=' . $id ) );
+		$back = 'builder' === sanitize_key( $_GET['back'] ?? '' ) ? Builder::url( $id ) : admin_url( 'post.php?action=edit&classic=1&post=' . $id );
+		wp_safe_redirect( add_query_arg( 'zpvp_notice', $result, $back ) );
 		exit;
 	}
 }

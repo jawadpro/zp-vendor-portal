@@ -99,12 +99,31 @@
 			root.innerHTML = '<h1>Conference Builder</h1><div class="notice notice-error"><p>' + esc( e.message ) + '</p></div>';
 			return;
 		}
-		const first = C.initial || S.boot.default;
+		const params = new URL( window.location.href ).searchParams;
+		const first = Number( C.initial ) || S.boot.default;
 		if ( ! first ) {
 			renderEmpty();
-			return;
+		} else {
+			await load( first );
 		}
-		await load( first );
+		const notes = {
+			created: 'Copied for next year as a draft. Check the dates.',
+			exists: 'Next year\'s conference already exists, so it was opened.',
+			sent: 'Change notice sent to registered vendors.',
+			cancelled: 'Change notice cancelled. Nothing was sent.',
+			none: 'No change notice went out: no registered vendors, or sending failed. Check the email log.',
+		};
+		const note = params.get( 'zpvp_copy' ) || params.get( 'zpvp_notice' );
+		if ( notes[ note ] ) {
+			toast( notes[ note ], note === 'none' );
+		}
+		if ( params.get( 'new' ) ) {
+			openNew();
+		}
+		[ 'new', 'zpvp_copy', 'zpvp_notice' ].forEach( ( k ) => params.delete( k ) );
+		const clean = new URL( window.location.href );
+		clean.search = params.toString();
+		window.history.replaceState( null, '', clean.toString() );
 	}
 
 	async function load( id ) {
@@ -212,10 +231,13 @@
 			+ '<div class="zpvp-prev__frame"><div class="zpvp" id="zpvp-prev-body"></div></div>'
 			+ '</div>'
 			+ '<div class="zpvp-b__card"><h2 class="zpvp-b__h">What happens</h2><ul class="zpvp-b__summary" id="zpvp-b-summary"></ul></div>'
+			+ '<div class="zpvp-b__card" id="zpvp-b-after"></div>'
 			+ '</aside></div>';
 
 		STEPS.forEach( ( s ) => renderStep( s.key ) );
 		renderLive();
+		renderAfter();
+		initPickers();
 	}
 
 	function stepShell( s ) {
@@ -260,6 +282,31 @@
 		renderPublish();
 	}
 
+	/** Change notice, email and copy: they act on what is saved, so they follow the last save. */
+	function renderAfter() {
+		const el = $( '#zpvp-b-after' );
+		const a = S.data.after;
+		if ( ! el || ! a ) {
+			return;
+		}
+		let notice;
+		if ( ! S.data.published ) {
+			notice = '<p class="zpvp-muted">Once published, vendors are emailed automatically when the dates, venue, information, floor plan, documents or booth staff deadline change.</p>';
+		} else if ( ! a.noticesOn ) {
+			notice = '<p class="zpvp-muted">Automatic change notices are off (Settings → Emails).</p>';
+		} else if ( a.pending.length ) {
+			notice = '<p><strong>Change notice waiting to send' + ( a.sendsAt ? ' at ' + esc( a.sendsAt ) : '' ) + ':</strong></p><ul class="zpvp-b__summary">'
+				+ a.pending.map( ( l ) => '<li>' + esc( l ) + '</li>' ).join( '' ) + '</ul>'
+				+ '<p><a class="button button-primary" data-leave href="' + esc( a.sendUrl ) + '">Send now</a> <a class="button" data-leave href="' + esc( a.cancelUrl ) + '">Don\'t send</a></p>';
+		} else {
+			notice = '<p class="zpvp-muted">Registered vendors are emailed ' + a.delay + ' minutes after you save changes to the dates, venue, information, floor plan, documents or booth staff deadline.</p>';
+		}
+		el.innerHTML = '<h2 class="zpvp-b__h">Vendors and next year</h2>' + notice
+			+ ( a.lastNotice ? '<p class="zpvp-f__help">Last change notice: ' + esc( a.lastNotice ) + '.</p>' : '' )
+			+ '<p class="zpvp-b__after-actions"><a class="button" data-leave href="' + esc( a.emailUrl ) + '">Email vendors (' + a.registrations + ')</a> '
+			+ '<a class="button" data-leave href="' + esc( a.copyUrl ) + '">Copy for ' + esc( a.nextYear ) + '</a></p>';
+	}
+
 	function renderSaveState() {
 		const el = $( '#zpvp-b-savestate' );
 		if ( el ) {
@@ -288,6 +335,112 @@
 		return '<div class="zpvp-f"><label for="zpvp-f-' + key + '">' + esc( label ) + '</label>' + input + ( help ? '<p class="zpvp-f__help">' + esc( help ) + '</p>' : '' ) + '</div>';
 	}
 	const text = ( key, type = 'text', extra = '' ) => '<input id="zpvp-f-' + key + '" type="' + type + '" data-field="' + key + '" value="' + esc( S.values[ key ] ) + '" ' + extra + '>';
+	const dateTime = ( key ) => ( window.flatpickr
+		? '<div class="zpvp-dp"><input id="zpvp-f-' + key + '" type="text" data-dp="datetime" data-key="' + key + '" placeholder="Not set"><button type="button" class="zpvp-dp__clear" data-dp-clear="' + key + '" aria-label="Clear">&times;</button></div>'
+		: text( key, 'datetime-local' ) );
+
+	function regPageAuto() {
+		const r = S.data.regPage || {};
+		if ( r.typed ) {
+			return 'Link set in the classic editor: ' + r.typed;
+		}
+		return r.detected ? 'Automatic: ' + r.detected.title : 'Automatic (no page shows the form yet)';
+	}
+
+	/* ---------------- Date pickers (Flatpickr) ---------------- */
+
+	const pickers = {};
+	const DT_FORMAT = 'Y-m-d\\TH:i';
+
+	function initPickers() {
+		if ( ! window.flatpickr ) {
+			return;
+		}
+		Object.keys( pickers ).forEach( ( k ) => {
+			if ( ! document.body.contains( pickers[ k ].input ) ) {
+				pickers[ k ].destroy();
+				delete pickers[ k ];
+			}
+		} );
+		const range = $( '[data-dp="range"]' );
+		if ( range && ! pickers.dates ) {
+			pickers.dates = window.flatpickr( range, {
+				mode: 'range',
+				dateFormat: 'Y-m-d',
+				altInput: true,
+				altFormat: 'M j, Y',
+				showMonths: window.innerWidth > 900 ? 2 : 1,
+				defaultDate: [ S.values.start_date, S.values.end_date || S.values.start_date ].filter( Boolean ),
+				onChange( dates, str, fp ) {
+					if ( dates.length === 2 ) {
+						S.values.start_date = fp.formatDate( dates[ 0 ], 'Y-m-d' );
+						S.values.end_date = fp.formatDate( dates[ 1 ], 'Y-m-d' );
+						syncLimits();
+						changed();
+					}
+				},
+				onClose( dates, str, fp ) {
+					if ( dates.length === 1 ) {
+						// One click and close: a one-day event.
+						fp.setDate( [ dates[ 0 ], dates[ 0 ] ], true );
+					}
+				},
+			} );
+			pickers.dates.altInput.id = 'zpvp-f-dates';
+			range.removeAttribute( 'id' );
+		}
+		$$( '[data-dp="datetime"]' ).forEach( ( el ) => {
+			const key = el.dataset.key;
+			if ( pickers[ key ] ) {
+				return;
+			}
+			pickers[ key ] = window.flatpickr( el, {
+				enableTime: true,
+				dateFormat: DT_FORMAT,
+				altInput: true,
+				altFormat: 'M j, Y h:i K',
+				minuteIncrement: 15,
+				defaultHour: key === 'registration_opens' ? 9 : 17,
+				defaultDate: S.values[ key ] || null,
+				onChange( dates, str ) {
+					S.values[ key ] = dates.length ? str : '';
+					syncLimits();
+					changed();
+				},
+			} );
+			pickers[ key ].altInput.id = 'zpvp-f-' + key;
+			el.removeAttribute( 'id' );
+		} );
+		syncLimits();
+	}
+
+	/** Keep the pickers sensible: closing after opening, booth staff deadline before the conference ends. */
+	function syncLimits() {
+		const v = S.values;
+		if ( pickers.registration_closes ) {
+			pickers.registration_closes.set( 'minDate', v.registration_opens ? v.registration_opens.slice( 0, 10 ) : null );
+		}
+		if ( pickers.registration_opens ) {
+			pickers.registration_opens.set( 'maxDate', v.end_date || v.start_date || null );
+		}
+		if ( pickers.attendee_edit_deadline ) {
+			pickers.attendee_edit_deadline.set( 'maxDate', v.end_date || v.start_date || null );
+		}
+	}
+
+	function clearPicker( key ) {
+		if ( key === 'dates' ) {
+			S.values.start_date = '';
+			S.values.end_date = '';
+		} else {
+			S.values[ key ] = '';
+		}
+		if ( pickers[ key ] ) {
+			pickers[ key ].clear( false );
+		}
+		syncLimits();
+		changed();
+	}
 
 	function renderStep( key ) {
 		const body = $( '#zpvp-body-' + key );
@@ -297,8 +450,9 @@
 				+ field( 'series', 'Conference series', '<select id="zpvp-f-series" data-field="series" data-num="1"><option value="0">Choose…</option>'
 					+ S.boot.series.map( ( s ) => '<option value="' + s.id + '"' + ( s.id === v.series ? ' selected' : '' ) + '>' + esc( s.title ) + '</option>' ).join( '' ) + '</select>', 'The title is filled in from the series and year.' )
 				+ field( 'year', 'Year', text( 'year', 'number', 'min="2015" max="2100" data-num="1"' ) )
-				+ field( 'start_date', 'Start date', text( 'start_date', 'date' ) )
-				+ field( 'end_date', 'End date', text( 'end_date', 'date' ) )
+				+ ( window.flatpickr
+					? field( 'dates', 'Conference dates', '<div class="zpvp-dp"><input id="zpvp-f-dates" type="text" data-dp="range" placeholder="Choose the first and last day"><button type="button" class="zpvp-dp__clear" data-dp-clear="dates" aria-label="Clear the dates">&times;</button></div>', 'Click the first day, then the last day. Click one day twice for a one-day event.' )
+					: field( 'start_date', 'Start date', text( 'start_date', 'date' ) ) + field( 'end_date', 'End date', text( 'end_date', 'date' ) ) )
 				+ field( 'venue', 'Venue', text( 'venue' ) )
 				+ field( 'city', 'City', text( 'city' ) )
 				+ '</div>';
@@ -314,22 +468,36 @@
 			body.innerHTML = '<div id="zpvp-conn-list" class="zpvp-conn"></div>';
 		} else if ( key === 'registration' ) {
 			body.innerHTML = '<div class="zpvp-fgrid">'
-				+ field( 'registration_opens', 'Registration opens', text( 'registration_opens', 'datetime-local' ) )
-				+ field( 'registration_closes', 'Registration closes', text( 'registration_closes', 'datetime-local' ), 'Leave empty to keep it open until sold out.' )
-				+ field( 'attendee_edit_deadline', 'Booth staff deadline', text( 'attendee_edit_deadline', 'datetime-local' ), 'Vendors can change booth staff until then. Badges are printed after it.' )
+				+ field( 'registration_opens', 'Registration opens', dateTime( 'registration_opens' ) )
+				+ field( 'registration_closes', 'Registration closes', dateTime( 'registration_closes' ), 'Leave empty to keep it open until sold out.' )
+				+ field( 'attendee_edit_deadline', 'Booth staff deadline', dateTime( 'attendee_edit_deadline' ), 'Vendors can change booth staff until then. Badges are printed after it.' )
 				+ field( 'booth_capacity', 'Booth capacity', text( 'booth_capacity', 'number', 'min="0" placeholder="No limit"' ) )
 				+ '</div><div id="zpvp-capacity" class="zpvp-cap"></div>'
 				+ field( 'status_override', 'Status', '<select id="zpvp-f-status_override" data-field="status_override">'
-					+ S.boot.overrides.map( ( o ) => '<option value="' + o.value + '"' + ( o.value === v.status_override ? ' selected' : '' ) + '>' + esc( o.label ) + '</option>' ).join( '' ) + '</select>', 'Leave on Automatic unless you need to override it.' );
+					+ S.boot.overrides.map( ( o ) => '<option value="' + o.value + '"' + ( o.value === v.status_override ? ' selected' : '' ) + '>' + esc( o.label ) + '</option>' ).join( '' ) + '</select>', 'Leave on Automatic unless you need to override it.' )
+				+ field( 'registration_url', 'Registration page', '<select id="zpvp-f-registration_url" data-field="registration_url" data-num="1"><option value="0">' + esc( regPageAuto() ) + '</option>'
+					+ ( S.boot.pages || [] ).map( ( p ) => '<option value="' + p.id + '"' + ( p.id === v.registration_url ? ' selected' : '' ) + '>' + esc( p.title ) + '</option>' ).join( '' ) + '</select>', 'Where the Register button sends vendors. Leave on automatic unless the form is on more than one page.' );
 		} else if ( key === 'resources' ) {
 			const fp = S.data.floorPlan;
 			body.innerHTML = '<div class="zpvp-f"><span class="zpvp-f__label">Floor plan</span><div class="zpvp-file" id="zpvp-floor">'
 				+ ( fp && fp.id ? '<a href="' + esc( fp.url ) + '" target="_blank" rel="noopener">' + esc( fp.name ) + '</a> <button type="button" class="button-link zpvp-danger-link" data-act="floor-remove">Remove</button>' : '<span class="zpvp-muted">No file yet</span>' )
 				+ ' <button type="button" class="button" data-act="floor-pick">' + ( fp && fp.id ? 'Replace' : 'Choose file' ) + '</button></div></div>'
 				+ [ [ 'hotel_info', 'Hotel information' ], [ 'decorator_info', 'Decorator information' ], [ 'electricity_info', 'Electricity information' ] ].map( ( [ k, l ] ) => field( k, l, '<textarea id="zpvp-f-' + k + '" data-field="' + k + '" rows="4">' + esc( v[ k ] ) + '</textarea>' ) ).join( '' )
-				+ '<p class="zpvp-f__help">Links and simple formatting are kept. '
-				+ ( S.data.files ? S.data.files + ' other file(s) are attached; manage them' : 'To attach other files, use' )
-				+ ' in the <a href="' + esc( S.data.editUrl ) + '">classic editor</a> (Resources tab).</p>';
+				+ '<p class="zpvp-f__help">Links and simple formatting are kept.</p>'
+				+ '<div class="zpvp-f"><span class="zpvp-f__label">Documents</span>'
+				+ ( v.resource_files.length
+					? '<ul class="zpvp-docs">' + v.resource_files.map( ( r, i ) => {
+						const f = S.data.files[ i ] || {};
+						return '<li class="zpvp-docs__row"><label class="screen-reader-text" for="zpvp-doc-' + i + '">Label for ' + esc( f.name || 'document' ) + '</label>'
+							+ '<input id="zpvp-doc-' + i + '" type="text" data-doc-label="' + i + '" value="' + esc( r.label ) + '" placeholder="' + esc( f.name || 'Label' ) + '">'
+							+ ( f.url ? '<a href="' + esc( f.url ) + '" target="_blank" rel="noopener" class="zpvp-docs__file">' + esc( f.name ) + '</a>' : '<span class="zpvp-muted">File missing</span>' )
+							+ '<button type="button" class="button-link" data-doc-move="' + i + ':-1"' + ( i ? '' : ' disabled' ) + ' aria-label="Move up">&uarr;</button>'
+							+ '<button type="button" class="button-link" data-doc-move="' + i + ':1"' + ( i < v.resource_files.length - 1 ? '' : ' disabled' ) + ' aria-label="Move down">&darr;</button>'
+							+ '<button type="button" class="button-link zpvp-danger-link" data-doc-remove="' + i + '">Remove</button></li>';
+					} ).join( '' ) + '</ul>'
+					: '<p class="zpvp-muted">No documents yet.</p>' )
+				+ '<button type="button" class="button" data-act="doc-add">Add documents</button>'
+				+ '<p class="zpvp-f__help">Exhibitor kits, schedules, forms. Registered vendors see them under Documents with the label you give them.</p></div>';
 		} else if ( key === 'publish' ) {
 			body.innerHTML = '<div id="zpvp-publish"></div>';
 		}
@@ -623,6 +791,26 @@
 		frame.open();
 	}
 
+	let docFrame;
+	function pickDocuments() {
+		if ( ! window.wp || ! wp.media ) {
+			toast( 'The media library is not available here.', true );
+			return;
+		}
+		if ( ! docFrame ) {
+			docFrame = wp.media( { title: 'Add documents for vendors', button: { text: 'Add' }, multiple: true } );
+			docFrame.on( 'select', () => {
+				docFrame.state().get( 'selection' ).toJSON().forEach( ( a ) => {
+					S.values.resource_files.push( { file: a.id, label: a.title || '' } );
+					S.data.files.push( { id: a.id, url: a.url, name: a.filename } );
+				} );
+				renderStep( 'resources' );
+				changed();
+			} );
+		}
+		docFrame.open();
+	}
+
 	/* ---------------- Events ---------------- */
 
 	function readField( el ) {
@@ -646,6 +834,9 @@
 	root.addEventListener( 'input', ( e ) => {
 		if ( e.target.matches( '[data-field]' ) && e.target.tagName !== 'SELECT' ) {
 			readField( e.target );
+		} else if ( e.target.matches( '[data-doc-label]' ) ) {
+			S.values.resource_files[ Number( e.target.dataset.docLabel ) ].label = e.target.value;
+			changed();
 		}
 	} );
 
@@ -709,6 +900,28 @@
 			changed();
 			return;
 		}
+		if ( t.dataset.dpClear ) {
+			clearPicker( t.dataset.dpClear );
+			return;
+		}
+		if ( t.dataset.docRemove ) {
+			const i = Number( t.dataset.docRemove );
+			S.values.resource_files.splice( i, 1 );
+			S.data.files.splice( i, 1 );
+			renderStep( 'resources' );
+			changed();
+			return;
+		}
+		if ( t.dataset.docMove ) {
+			const [ i, d ] = t.dataset.docMove.split( ':' ).map( Number );
+			[ S.values.resource_files, S.data.files ].forEach( ( list ) => {
+				const [ row ] = list.splice( i, 1 );
+				list.splice( i + d, 0, row );
+			} );
+			renderStep( 'resources' );
+			changed();
+			return;
+		}
 		if ( t.dataset.toggleForm ) {
 			openConnector( Number( t.dataset.toggleForm ) );
 			return;
@@ -733,6 +946,9 @@
 				break;
 			case 'floor-pick':
 				pickFloorPlan();
+				break;
+			case 'doc-add':
+				pickDocuments();
 				break;
 			case 'floor-remove':
 				S.values.floor_plan = 0;

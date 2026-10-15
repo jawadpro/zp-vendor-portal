@@ -18,6 +18,31 @@ final class Admin {
 		add_filter( 'admin_title', array( $this, 'hidden_page_title' ), 10, 2 );
 		add_filter( 'parent_file', array( $this, 'series_parent' ) );
 		add_filter( 'submenu_file', array( $this, 'series_submenu' ) );
+		add_action( 'admin_head', array( $this, 'menu_style' ) );
+	}
+
+	/** Make the Vendor Portal menu stand out in the admin sidebar, in ZacPubs navy with a red accent. */
+	public function menu_style(): void {
+		?>
+		<style id="zpvp-menu-style">
+			#adminmenu #toplevel_page_zpvp { margin: 8px 0; }
+			#adminmenu #toplevel_page_zpvp > a.menu-top { background: linear-gradient(135deg, #2b3152, #3d4573); color: #fff; box-shadow: inset 4px 0 0 #b8282e; font-weight: 600; }
+			#adminmenu #toplevel_page_zpvp > a.menu-top:hover,
+			#adminmenu #toplevel_page_zpvp > a.menu-top:focus,
+			#adminmenu #toplevel_page_zpvp.wp-has-current-submenu > a.menu-top,
+			#adminmenu #toplevel_page_zpvp.opensub > a.menu-top { background: #b8282e; color: #fff; }
+			#adminmenu #toplevel_page_zpvp div.wp-menu-image:before { color: #fff; }
+			#adminmenu #toplevel_page_zpvp .wp-submenu { background: #1f2440; }
+			#adminmenu #toplevel_page_zpvp .wp-submenu a { color: #d6d9ea; }
+			#adminmenu #toplevel_page_zpvp .wp-submenu a:hover,
+			#adminmenu #toplevel_page_zpvp .wp-submenu a:focus,
+			#adminmenu #toplevel_page_zpvp .wp-submenu li.current a { color: #fff; }
+			#adminmenu #toplevel_page_zpvp.wp-has-current-submenu .wp-submenu-head,
+			#adminmenu #toplevel_page_zpvp .wp-submenu-head { color: #fff; }
+			#adminmenu #toplevel_page_zpvp.wp-menu-open > a.menu-top:after,
+			#adminmenu #toplevel_page_zpvp.wp-has-current-submenu > a.menu-top:after { border-right-color: #f0f0f1; }
+		</style>
+		<?php
 	}
 
 	/** Conference Series screens live under Vendor Portal → Settings in the menu. */

@@ -339,6 +339,22 @@ up: the next deploy overwrites the folder (`--delete`).
   email matches (the annual form is left out). Entries are placed on the series' conference that started soonest after
   the entry date. Nothing is emailed. Entries without a matching vendor are listed for manual linking.
 
+## Builder is the conference editor (v0.23.0)
+
+- Opening or adding a conference (`post.php?action=edit`, `post-new.php?post_type=zp_conf_edition`) goes to the
+  Conference Builder (`Builder::open_builder()`, GET only). The classic screen stays available with `&classic=1`:
+  the builder's **Classic editor** button and the **Classic editor** row action. Saving the classic screen keeps you on it.
+- The builder now also edits **Documents** (the `resource_files` repeater: add from the media library, label,
+  reorder, remove) and the **Registration page** override (`registration_url`; a URL typed in the classic editor is kept).
+- **Vendors and next year** panel: the pending change notice with **Send now** / **Don't send**, **Email vendors**
+  and **Copy for next year**. These act on what is saved and return to the builder.
+- Dates use Flatpickr 4.6.13 (MIT, bundled in `assets/vendor/flatpickr`): one range calendar for the conference
+  dates, and date + time pickers (12-hour, 15-minute steps) for registration opens/closes and the booth staff
+  deadline. Closing can't be set before opening, and opening and the deadline can't be after the conference ends.
+  Without Flatpickr the browser's own date fields are used. Stored formats are unchanged.
+- Change notices now ignore saves that leave a field's value the same (previously a floor plan or document field
+  rewritten with the same value was reported as changed).
+
 ## Header menu link
 
 `includes/class-menu.php` adds the vendor link to the end of the menu in the

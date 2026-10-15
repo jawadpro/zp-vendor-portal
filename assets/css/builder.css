@@ -237,3 +237,23 @@ tr.is-missing .zpvp-conn__status { color: var(--b-err); font-weight: 600; }
 	.zpvp-wire { display: none; }
 	.zpvp-conn__table tbody th { width: auto; }
 }
+
+/* Date pickers (Flatpickr) */
+.zpvp-dp { position: relative; display: flex; align-items: center; }
+.zpvp-dp input { width: 100%; padding-right: 30px; background: #fff; cursor: pointer; }
+.zpvp-dp__clear { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); border: 0; background: none; color: var(--b-muted); font-size: 18px; line-height: 1; padding: 4px 6px; cursor: pointer; }
+.zpvp-dp__clear:hover, .zpvp-dp__clear:focus { color: var(--b-err); }
+.flatpickr-calendar { font-size: 13px; }
+.flatpickr-day.selected, .flatpickr-day.startRange, .flatpickr-day.endRange,
+.flatpickr-day.selected:hover, .flatpickr-day.startRange:hover, .flatpickr-day.endRange:hover { background: #2b3152; border-color: #2b3152; color: #fff; }
+.flatpickr-day.inRange { background: #e8eaf3; border-color: #e8eaf3; box-shadow: -5px 0 0 #e8eaf3, 5px 0 0 #e8eaf3; }
+.flatpickr-day.today { border-color: #b8282e; }
+/* The calendar is attached to <body>, outside the builder's colour variables. */
+
+/* Documents */
+.zpvp-docs { margin: 4px 0 10px; padding: 0; list-style: none; }
+.zpvp-docs__row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--b-line); }
+.zpvp-docs__row input { flex: 1 1 200px; min-width: 0; }
+.zpvp-docs__file { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; font-size: 13px; }
+.zpvp-docs__row .button-link[disabled] { opacity: .35; cursor: default; }
+.zpvp-b__after-actions { display: flex; flex-wrap: wrap; gap: 8px; }

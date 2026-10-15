@@ -47,6 +47,41 @@ final class Builder {
 		add_action( 'admin_enqueue_scripts', array( $this, 'assets' ) );
 		add_filter( 'post_row_actions', array( $this, 'row_action' ), 20, 2 );
 		add_action( 'add_meta_boxes_' . Conferences::EDITION, array( $this, 'meta_box' ) );
+		add_action( 'load-post.php', array( $this, 'open_builder' ) );
+		add_action( 'load-post-new.php', array( $this, 'open_builder' ) );
+		add_filter( 'redirect_post_location', array( $this, 'stay_classic' ), 10, 2 );
+	}
+
+	/**
+	 * The builder is the conference editor: opening or adding a conference goes
+	 * there. The classic screen stays reachable with &classic=1 (builder's
+	 * "Classic editor" button), and saving it keeps you on it.
+	 */
+	public function open_builder(): void {
+		if ( 'GET' !== ( $_SERVER['REQUEST_METHOD'] ?? 'GET' ) || ! empty( $_GET['classic'] ) || ! current_user_can( Roles::CAP_MANAGE ) ) {
+			return;
+		}
+		global $pagenow;
+		if ( 'post-new.php' === $pagenow ) {
+			if ( Conferences::EDITION === sanitize_key( $_GET['post_type'] ?? '' ) ) {
+				wp_safe_redirect( add_query_arg( 'new', 1, self::url() ) );
+				exit;
+			}
+			return;
+		}
+		$id = absint( $_GET['post'] ?? 0 );
+		if ( $id && 'edit' === ( $_GET['action'] ?? '' ) && Conferences::EDITION === get_post_type( $id ) ) {
+			$url = self::url( $id );
+			if ( isset( $_GET['zpvp_copy'] ) ) {
+				$url = add_query_arg( 'zpvp_copy', sanitize_key( $_GET['zpvp_copy'] ), $url );
+			}
+			wp_safe_redirect( $url );
+			exit;
+		}
+	}
+
+	public function stay_classic( $location, $post_id ) {
+		return Conferences::EDITION === get_post_type( (int) $post_id ) ? add_query_arg( 'classic', 1, $location ) : $location;
 	}
 
 	public static function url( int $edition_id = 0 ): string {
@@ -63,7 +98,7 @@ final class Builder {
 
 	public function row_action( $actions, $post ) {
 		if ( $post instanceof \WP_Post && Conferences::EDITION === $post->post_type && current_user_can( Roles::CAP_MANAGE ) ) {
-			$actions = array( 'zpvp_builder' => '<a href="' . esc_url( self::url( (int) $post->ID ) ) . '">Open in builder</a>' ) + $actions;
+			$actions['zpvp_classic'] = '<a href="' . esc_url( add_query_arg( 'classic', 1, (string) get_edit_post_link( $post->ID, 'url' ) ) ) . '">Classic editor</a>';
 		}
 		return $actions;
 	}
@@ -73,7 +108,7 @@ final class Builder {
 			'zpvp-builder-link',
 			'Conference Builder',
 			static function ( $post ) {
-				echo '<p>Set up this conference step by step and see what vendors will see while you work.</p>';
+				echo '<p>The builder is the main conference editor. This classic screen is kept for anything the builder does not cover.</p>';
 				echo '<p><a class="button button-primary" href="' . esc_url( self::url( (int) $post->ID ) ) . '">Open in builder</a></p>';
 			},
 			Conferences::EDITION,
@@ -88,8 +123,10 @@ final class Builder {
 		}
 		wp_enqueue_media();
 		wp_enqueue_style( 'zpvp-portal', ZPVP_URL . 'assets/css/portal.css', array(), ZPVP_VERSION );
-		wp_enqueue_style( 'zpvp-builder', ZPVP_URL . 'assets/css/builder.css', array( 'zpvp-portal' ), ZPVP_VERSION );
-		wp_enqueue_script( 'zpvp-builder', ZPVP_URL . 'assets/js/builder.js', array(), ZPVP_VERSION, true );
+		wp_enqueue_style( 'zpvp-flatpickr', ZPVP_URL . 'assets/vendor/flatpickr/flatpickr.min.css', array(), '4.6.13' );
+		wp_enqueue_style( 'zpvp-builder', ZPVP_URL . 'assets/css/builder.css', array( 'zpvp-portal', 'zpvp-flatpickr' ), ZPVP_VERSION );
+		wp_enqueue_script( 'zpvp-flatpickr', ZPVP_URL . 'assets/vendor/flatpickr/flatpickr.min.js', array(), '4.6.13', true );
+		wp_enqueue_script( 'zpvp-builder', ZPVP_URL . 'assets/js/builder.js', array( 'zpvp-flatpickr' ), ZPVP_VERSION, true );
 		wp_localize_script(
 			'zpvp-builder',
 			'ZPVP_BUILDER',
@@ -210,6 +247,10 @@ final class Builder {
 				'dropdowns' => array_map( static fn( $k, $v ) => array( 'value' => (string) $k, 'label' => $v ), array_keys( Conferences::annual_dropdowns() ), Conferences::annual_dropdowns() ),
 			),
 			'overrides'   => $statuses,
+			'pages'       => array_map(
+				static fn( $p ) => array( 'id' => (int) $p->ID, 'title' => html_entity_decode( $p->post_title, ENT_QUOTES ) ),
+				get_posts( array( 'post_type' => 'page', 'post_status' => 'publish', 'posts_per_page' => 500, 'orderby' => 'title', 'order' => 'ASC', 'suppress_filters' => true ) )
+			),
 			'nextYear'    => Conferences::next_season_year(),
 		);
 	}
@@ -350,8 +391,18 @@ final class Builder {
 			}
 			$v[ $key ] = $raw;
 		}
-		$v['year']            = (int) $v['year'];
-		$v['floor_plan']      = (int) $v['floor_plan'];
+		$v['year']             = (int) $v['year'];
+		$v['floor_plan']       = (int) $v['floor_plan'];
+		$reg_url               = (string) get_post_meta( $id, 'registration_url', true );
+		$v['registration_url'] = is_numeric( $reg_url ) ? (int) $reg_url : 0;
+		$v['resource_files']   = array();
+		$count                 = (int) get_post_meta( $id, 'resource_files', true );
+		for ( $i = 0; $i < $count; $i++ ) {
+			$file = (int) get_post_meta( $id, 'resource_files_' . $i . '_file', true );
+			if ( $file ) {
+				$v['resource_files'][] = array( 'file' => $file, 'label' => (string) get_post_meta( $id, 'resource_files_' . $i . '_label', true ) );
+			}
+		}
 		$v['status_override'] = '' === $v['status_override'] ? 'auto' : $v['status_override'];
 		return $v;
 	}
@@ -371,6 +422,19 @@ final class Builder {
 		if ( array_key_exists( 'annual_product_field', $in ) ) {
 			$field                     = preg_replace( '/[^0-9.]/', '', (string) $in['annual_product_field'] );
 			$v['annual_product_field'] = isset( Conferences::annual_dropdowns()[ $field ] ) ? $field : '';
+		}
+		if ( array_key_exists( 'registration_url', $in ) ) {
+			$page                  = absint( $in['registration_url'] );
+			$v['registration_url'] = ( $page && 'page' === get_post_type( $page ) ) ? $page : 0;
+		}
+		if ( array_key_exists( 'resource_files', $in ) ) {
+			$v['resource_files'] = array();
+			foreach ( array_slice( (array) $in['resource_files'], 0, 50 ) as $row ) {
+				$file = absint( is_array( $row ) ? ( $row['file'] ?? 0 ) : 0 );
+				if ( $file && 'attachment' === get_post_type( $file ) ) {
+					$v['resource_files'][] = array( 'file' => $file, 'label' => sanitize_text_field( (string) ( $row['label'] ?? '' ) ) );
+				}
+			}
 		}
 		foreach ( array_keys( self::FIELDS ) as $key ) {
 			if ( ! array_key_exists( $key, $in ) ) {
@@ -412,10 +476,38 @@ final class Builder {
 			}
 			Conferences::set_field( $id, $key, $ref, $value );
 		}
+		$manual = (string) get_post_meta( $id, 'registration_url', true );
+		if ( $v['registration_url'] || is_numeric( $manual ) ) {
+			// A typed URL set in the classic editor is kept unless a page is chosen here.
+			Conferences::set_field( $id, 'registration_url', 'field_zpvp_ed_reg_url', $v['registration_url'] ? (string) $v['registration_url'] : '' );
+		}
+		self::persist_files( $id, $v['resource_files'] );
 		$series = (int) $v['series'];
 		Conferences::set_field( $series, 'gf_forms', 'field_zpvp_series_gf_forms', array_map( 'strval', $v['forms'] ) );
 		Conferences::set_field( $series, 'sponsorship_forms', 'field_zpvp_series_sponsor_forms', array_map( 'strval', $v['sponsorship_forms'] ) );
 		Conferences::set_field( $series, 'annual_product_field', 'field_zpvp_series_annual_field', $v['annual_product_field'] );
+	}
+
+	/** A registration link typed as a URL in the classic editor ('' when none or a page was chosen). */
+	private static function typed_url( int $id ): string {
+		$manual = (string) get_post_meta( $id, 'registration_url', true );
+		return is_numeric( $manual ) ? '' : $manual;
+	}
+
+	/** Documents are an ACF repeater: a row count plus one label and file per row. */
+	private static function persist_files( int $id, array $rows ): void {
+		$old = (int) get_post_meta( $id, 'resource_files', true );
+		foreach ( array_values( $rows ) as $i => $row ) {
+			Conferences::set_field( $id, 'resource_files_' . $i . '_label', 'field_zpvp_ed_file_label', $row['label'] );
+			Conferences::set_field( $id, 'resource_files_' . $i . '_file', 'field_zpvp_ed_file_file', (string) $row['file'] );
+		}
+		for ( $i = count( $rows ); $i < $old; $i++ ) {
+			foreach ( array( 'label', 'file' ) as $sub ) {
+				delete_post_meta( $id, 'resource_files_' . $i . '_' . $sub );
+				delete_post_meta( $id, '_resource_files_' . $i . '_' . $sub );
+			}
+		}
+		Conferences::set_field( $id, 'resource_files', 'field_zpvp_ed_files', count( $rows ) );
 	}
 
 	/** Another conference of the same series and year (0 if none). */
@@ -438,10 +530,41 @@ final class Builder {
 			'id'        => $id,
 			'published' => 'publish' === get_post_status( $id ),
 			'values'    => $values,
-			'editUrl'   => (string) get_edit_post_link( $id, 'url' ),
+			'editUrl'   => add_query_arg( 'classic', 1, (string) get_edit_post_link( $id, 'url' ) ),
 			'floorPlan' => self::attachment( (int) $values['floor_plan'] ),
-			'files'     => (int) get_post_meta( $id, 'resource_files', true ),
+			'files'     => array_map( static fn( $r ) => self::attachment( (int) $r['file'] ), $values['resource_files'] ),
+			'after'     => self::after( $id ),
+			'regPage'   => array(
+				'typed'    => self::typed_url( $id ),
+				'detected' => ( static function ( $found ) {
+					return $found['page'] ? array( 'title' => self::plain( (int) $found['page'] ), 'url' => (string) get_permalink( (int) $found['page'] ) ) : null;
+				} )( Conferences::detect_registration_page( $id ) ),
+			),
 		) + self::evaluate( $id, $values );
+	}
+
+	/** What staff can do with a saved conference: change notice, email vendors, copy for next year. */
+	private static function after( int $id ): array {
+		$settings = Change_Notices::settings();
+		$next     = wp_next_scheduled( Change_Notices::HOOK, array( $id ) );
+		$last     = get_post_meta( $id, '_zpvp_last_change_notice', true );
+		$notice   = static fn( string $do ) => add_query_arg(
+			array( 'action' => 'zpvp_change_notice', 'do' => $do, 'edition' => $id, 'back' => 'builder', '_wpnonce' => wp_create_nonce( 'zpvp_change_notice_' . $id ) ),
+			admin_url( 'admin-post.php' )
+		);
+		return array(
+			'noticesOn'     => (bool) $settings['enabled'],
+			'delay'         => (int) $settings['delay'],
+			'pending'       => Change_Notices::describe( $id ),
+			'sendsAt'       => $next ? wp_date( 'g:i a', $next ) : '',
+			'sendUrl'       => $notice( 'send' ),
+			'cancelUrl'     => $notice( 'cancel' ),
+			'lastNotice'    => is_array( $last ) && ! empty( $last['at'] ) ? sprintf( '%s, %d registration(s)', mysql2date( 'M j, Y g:i a', $last['at'] ), (int) $last['sent'] ) : '',
+			'registrations' => count( Admin_Messages::registrations( $id, 'all' ) ),
+			'emailUrl'      => admin_url( 'admin.php?page=zpvp&compose=1&edition=' . $id ),
+			'copyUrl'       => add_query_arg( 'back', 'builder', wp_specialchars_decode( Conferences::copy_url( $id ) ) ),
+			'nextYear'      => ( (int) get_post_meta( $id, 'year', true ) ?: (int) substr( (string) get_post_meta( $id, 'start_date', true ), 0, 4 ) ?: (int) current_time( 'Y' ) ) + 1,
+		);
 	}
 
 	private static function attachment( int $id ): array {
@@ -667,7 +790,7 @@ final class Builder {
 				$issues[] = array( 'warn', sprintf( '%s is switched off in Gravity Forms. Switch it on before registration opens.', $title ) );
 			}
 			$page = self::page_for_form( $form_id );
-			if ( ! $page && 'registration' === $role && '' === (string) get_post_meta( $id, 'registration_url', true ) ) {
+			if ( ! $page && 'registration' === $role && ! $v['registration_url'] && '' === self::typed_url( $id ) ) {
 				$issues[] = array( 'warn', sprintf( '%s is not on any published page, so the Register button has nowhere to go.', $title ) );
 			}
 			$other = self::other_series( $form_id, (int) $v['series'], $role );
@@ -852,10 +975,9 @@ final class Builder {
 		if ( $v['floor_plan'] && wp_get_attachment_url( (int) $v['floor_plan'] ) ) {
 			$files[] = '<li><a href="' . esc_url( (string) wp_get_attachment_url( (int) $v['floor_plan'] ) ) . '" target="_blank" rel="noopener">Floor plan</a></li>';
 		}
-		$count = (int) get_post_meta( $id, 'resource_files', true );
-		for ( $i = 0; $i < $count; $i++ ) {
-			$file  = (int) get_post_meta( $id, 'resource_files_' . $i . '_file', true );
-			$label = (string) get_post_meta( $id, 'resource_files_' . $i . '_label', true );
+		foreach ( $v['resource_files'] as $row ) {
+			$file  = (int) $row['file'];
+			$label = (string) $row['label'];
 			if ( $file && wp_get_attachment_url( $file ) ) {
 				$files[] = '<li><a href="' . esc_url( (string) wp_get_attachment_url( $file ) ) . '" target="_blank" rel="noopener">' . esc_html( $label ? $label : self::plain( $file ) ) . '</a></li>';
 			}
