@@ -1,17 +1,41 @@
-
 /* Shared request feedback for the dashboard and conference builder. */
-.zpvp-activity { position: fixed; top: 44px; right: 24px; z-index: 100100; display: flex; align-items: center; gap: 10px; padding: 12px 18px; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; color: #334155; font-size: 13px; font-weight: 600; box-shadow: 0 4px 18px #0f172a18; pointer-events: none; }
+.zpvp-activity { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 100100; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 8px; background: #2b3152; color: #fff; font-size: 13px; font-weight: 600; box-shadow: 0 6px 20px rgba(15, 23, 42, .18); pointer-events: none; animation: zpvp-pop .15s ease-out; }
 .zpvp-activity[hidden] { display: none; }
-.zpvp-loading { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 110px; padding: 24px; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; }
-.zpvp-activity::before, .zpvp-loading::before { content: ''; flex: 0 0 auto; width: 18px; height: 18px; border: 2px solid #dbeafe; border-top-color: #2563eb; border-radius: 50%; animation: zpvp-spin .8s linear infinite; }
-.zpvp-content-loading { position: relative; animation: zpvp-content-pulse 1.4s ease-in-out infinite; }
-.zpvp-content-loading::after { content: ''; position: absolute; inset: 0 0 auto; height: 3px; border-radius: 3px; background: linear-gradient(90deg, transparent, #2563eb, transparent); background-size: 200% 100%; animation: zpvp-sweep 1.2s linear infinite; pointer-events: none; }
+.zpvp-loading { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 110px; padding: 24px; color: #50575e; background: #f6f7f9; border: 1px solid #e4e6eb; border-radius: 8px; }
+.zpvp-activity::before, .zpvp-loading::before { content: ''; flex: 0 0 auto; width: 16px; height: 16px; border: 2px solid rgba(184, 40, 46, .25); border-top-color: #b8282e; border-radius: 50%; animation: zpvp-spin .7s linear infinite; }
+.zpvp-activity::before { border-color: rgba(255, 255, 255, .3); border-top-color: #fff; }
+
+/* Placeholders shaped like the content they stand in for. */
+.zpvp-skel { display: block; height: 10px; max-width: 100%; border-radius: 4px; background: linear-gradient(90deg, #e3e6ec 0%, #f3f4f7 45%, #e3e6ec 90%); background-size: 300% 100%; animation: zpvp-shimmer 1.4s ease-in-out infinite; }
+.zpvp-skel + .zpvp-skel { margin-top: 8px; }
+.zpvp-skel--sm { height: 8px; }
+.zpvp-skel--lg { height: 20px; margin-top: 10px !important; }
+.zpvp-skel--xl { height: 26px; margin-bottom: 4px; }
+.zpvp-kpi.is-skeleton { justify-content: center; min-height: 66px; }
+.zpvp-skel-rows td { padding-top: 16px; padding-bottom: 16px; }
+.zpvp-skel-rows tr:nth-child(n+4) { opacity: .7; }
+.zpvp-skel-rows tr:nth-child(5) { opacity: .45; }
+.zpvp-kpis__error { grid-column: 1 / -1; margin: 0; padding: 16px; background: #fff; border: 1px solid #dcdcde; border-radius: 8px; color: #50575e; }
+.zpvp-drawer-skel { padding-top: 8px; }
+.zpvp-drawer-skel .zpvp-skel + .zpvp-skel { margin-top: 10px; }
+.zpvp-drawer-skel__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0; padding: 16px; border: 1px solid #e4e6eb; border-radius: 8px; }
+
+/* Refreshing content that is already on screen: keep it readable, run a thin bar over it. */
+.zpvp-table-wrap { position: relative; }
+.zpvp-table-wrap::before, #zpvp-kpis::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 3px; background: linear-gradient(90deg, transparent, #b8282e, transparent) no-repeat; background-size: 40% 100%; opacity: 0; transition: opacity .15s; pointer-events: none; z-index: 2; }
+#zpvp-kpis { position: relative; }
+#zpvp-kpis::before { top: -8px; }
+.zpvp-table-wrap.is-busy::before, #zpvp-kpis.is-busy::before { opacity: 1; animation: zpvp-bar 1s ease-in-out infinite; }
+.zpvp-table-wrap tbody, #zpvp-kpis .zpvp-kpi strong { transition: opacity .2s; }
+.zpvp-table-wrap.is-busy tbody { opacity: .45; }
+#zpvp-kpis.is-busy .zpvp-kpi strong { opacity: .4; }
+
 @keyframes zpvp-spin { to { transform: rotate(360deg); } }
-@keyframes zpvp-content-pulse { 50% { opacity: .55; } }
-@keyframes zpvp-sweep { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-@media (prefers-reduced-motion: reduce) { .zpvp-activity::before, .zpvp-loading::before, .zpvp-content-loading, .zpvp-content-loading::after { animation: none; } }
-@media (max-width: 782px) { .zpvp-activity { top: 56px; right: 12px; max-width: calc(100vw - 48px); } }
-
-#zpvp-kpis.zpvp-content-loading:empty { min-height: 106px; border-radius: 12px; background: repeating-linear-gradient(90deg, #e2e8f0 0, #e2e8f0 18%, transparent 18%, transparent 20%); }
-.zpvp-content-loading .zpvp-grid:empty { min-height: 170px; width: 100%; background: repeating-linear-gradient(0deg, #f1f5f9 0, #f1f5f9 28px, transparent 28px, transparent 44px); }
-
+@keyframes zpvp-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@keyframes zpvp-bar { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+@keyframes zpvp-pop { from { opacity: 0; transform: translate(-50%, 6px); } }
+@media (prefers-reduced-motion: reduce) {
+	.zpvp-activity, .zpvp-activity::before, .zpvp-loading::before, .zpvp-skel { animation: none; }
+	.zpvp-table-wrap.is-busy::before, #zpvp-kpis.is-busy::before { animation: none; background-size: 100% 100%; }
+}
+@media (max-width: 782px) { .zpvp-activity { bottom: 16px; max-width: calc(100vw - 32px); } }

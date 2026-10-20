@@ -29,51 +29,87 @@
 	}
 
 
-	// Count overlapping requests so an earlier completion cannot hide a later request.
+	// Reads show progress where the content is (a bar over the table, dimmed totals);
+	// only saves get the floating note. Both wait a moment so quick responses don't flicker.
+	const BUSY_DELAY = 200;
 	let pendingRequests = 0;
-	let updatingRequests = 0;
-	let localLoadingRequests = 0;
-	const requestRegions = new Map();
+	let savingRequests = 0;
+	let activityTimer = 0;
+	const busyRegions = new Map();
 	const activity = document.createElement( 'div' );
 	activity.className = 'zpvp-activity';
 	activity.setAttribute( 'role', 'status' );
 	activity.setAttribute( 'aria-live', 'polite' );
 	activity.hidden = true;
 	root.before( activity );
+
+	function regionFor( path ) {
+		if ( /^\/summary(\?|$)/.test( path ) ) { return $( '#zpvp-kpis' ); }
+		if ( /^\/registrations(\?|$)/.test( path ) ) { return $( '#zpvp-reg-table' ).parentElement; }
+		if ( /^\/badges(\?|$)/.test( path ) ) { return $( '#zpvp-badge-table' ).parentElement; }
+		return null;
+	}
+
 	function beginRequest( path, method = 'GET' ) {
+		const isSave = ! [ 'GET', 'HEAD' ].includes( method.toUpperCase() );
+		const region = isSave ? null : regionFor( path );
 		pendingRequests++;
-		const isUpdate = ! [ 'GET', 'HEAD' ].includes( method.toUpperCase() ) && ! path.endsWith( '/check' );
-		if ( isUpdate ) { updatingRequests++; }
-		const hasLocalLoader = Array.from( root.querySelectorAll( '.zpvp-loading' ) ).some( ( el ) => el.getClientRects().length > 0 );
-		if ( hasLocalLoader ) { localLoadingRequests++; }
-		activity.textContent = updatingRequests > 0 ? 'Updating content…' : 'Loading…';
 		root.setAttribute( 'aria-busy', 'true' );
-		const selector = path.startsWith( '/summary' ) ? '#zpvp-kpis' : path.startsWith( '/registrations' ) ? '#zpvp-panel-registrations' : path.startsWith( '/badges' ) ? '#zpvp-panel-badges' : null;
-		const region = selector && ! hasLocalLoader ? root.querySelector( selector ) : null;
+		if ( isSave && ++savingRequests === 1 ) {
+			activityTimer = setTimeout( () => {
+				activity.textContent = 'Saving changes…';
+				activity.hidden = false;
+			}, 300 );
+		}
 		if ( region ) {
-			requestRegions.set( region, ( requestRegions.get( region ) || 0 ) + 1 );
-			region.classList.add( 'zpvp-content-loading' );
+			const entry = busyRegions.get( region ) || { count: 0, timer: 0 };
+			if ( ++entry.count === 1 ) {
+				entry.timer = setTimeout( () => region.classList.add( 'is-busy' ), BUSY_DELAY );
+			}
+			busyRegions.set( region, entry );
 			region.setAttribute( 'aria-busy', 'true' );
 		}
-		activity.hidden = localLoadingRequests > 0 || requestRegions.size > 0;
 		return () => {
 			if ( region ) {
-				const remaining = requestRegions.get( region ) - 1;
-				if ( remaining ) { requestRegions.set( region, remaining ); }
-				else { requestRegions.delete( region ); region.classList.remove( 'zpvp-content-loading' ); region.setAttribute( 'aria-busy', 'false' ); }
+				const entry = busyRegions.get( region );
+				if ( --entry.count === 0 ) {
+					clearTimeout( entry.timer );
+					busyRegions.delete( region );
+					region.classList.remove( 'is-busy' );
+					region.setAttribute( 'aria-busy', 'false' );
+				}
 			}
-			if ( hasLocalLoader ) { localLoadingRequests--; }
-			pendingRequests--;
-			if ( isUpdate ) { updatingRequests--; }
-			activity.textContent = updatingRequests > 0 ? 'Updating content…' : 'Loading…';
-			activity.hidden = pendingRequests === 0 || localLoadingRequests > 0 || requestRegions.size > 0;
-			if ( pendingRequests === 0 ) {
+			if ( isSave && --savingRequests === 0 ) {
+				clearTimeout( activityTimer );
 				activity.hidden = true;
 				activity.textContent = '';
+			}
+			if ( --pendingRequests === 0 ) {
 				root.setAttribute( 'aria-busy', 'false' );
 			}
 		};
 	}
+
+	/* Placeholders shown the first time a section loads, shaped like the real content. */
+	const skel = ( width, size = '' ) => `<span class="zpvp-skel${ size ? ' zpvp-skel--' + size : '' }" style="width:${ width }"></span>`;
+	const kpiSkeleton = () => `<div class="zpvp-kpi zpvp-kpi--wide is-skeleton" aria-hidden="true">${ skel( '30%' ) }${ skel( '18%', 'lg' ) }</div>`
+		+ [ '55%', '35%', '60%', '70%' ].map( ( w ) => `<div class="zpvp-kpi is-skeleton" aria-hidden="true">${ skel( w ) }${ skel( '45%', 'lg' ) }</div>` ).join( '' );
+	const REG_HEAD = '<thead><tr><th>Company</th><th>Booths</th><th>Booth #</th><th>Staff</th><th class="zpvp-num">Amount</th><th>Payment</th><th><span class="screen-reader-text">Actions</span></th></tr></thead>';
+	const badgeHead = ( all ) => `<thead><tr>
+					<th class="zpvp-col-check"><input type="checkbox" data-check-all ${ all ? 'checked' : '' } aria-label="Select all badges"></th>
+					<th>Name</th><th>Company</th>${ state.edition ? '' : '<th>Conference</th>' }<th>Type</th><th>Status</th><th>Printed</th>
+				</tr></thead>`;
+	function tableSkeleton( head, label ) {
+		const cols = ( head.match( /<th[\s>]/g ) || [] ).length;
+		const widths = [ '70%', '40%', '55%', '35%', '60%', '45%', '50%' ];
+		const row = ( i ) => '<tr>' + Array.from( { length: cols }, ( _, c ) => c === 0
+			? `<td class="zpvp-col-company">${ skel( [ '60%', '45%', '70%', '50%', '55%' ][ i ] ) }${ skel( '35%', 'sm' ) }</td>`
+			: `<td>${ skel( widths[ ( c + i ) % widths.length ] ) }</td>` ).join( '' ) + '</tr>';
+		return `${ head }<tbody class="zpvp-skel-rows" aria-hidden="true">${ [ 0, 1, 2, 3, 4 ].map( row ).join( '' ) }</tbody>
+			<caption class="screen-reader-text">${ esc( label ) }</caption>`;
+	}
+	const isSkeleton = ( el ) => ! el.firstElementChild || !! el.querySelector( '.zpvp-skel-rows, .is-skeleton' );
+	const loadError = ( cols, what ) => `<tbody><tr class="zpvp-empty-row"><td colspan="${ cols }">Couldn't load ${ what }. Refresh the page to try again.</td></tr></tbody>`;
 
 	async function api( path, opts = {} ) {
 		const finish = beginRequest( path, opts.method );
@@ -184,11 +220,14 @@
 	async function loadSummary() {
 		const e = C.editions.find( ( x ) => x.id === state.edition );
 		$( '#zpvp-edition-status' ).innerHTML = e ? pill( e.status === 'open' ? 'paid' : e.status === 'sold_out' ? 'failed' : 'neutral', e.label ) : '';
+		const kpis = $( '#zpvp-kpis' );
+		if ( ! kpis.firstElementChild ) { kpis.innerHTML = kpiSkeleton(); }
 		let s;
 		try {
 			s = await latestRead( 'summary', '/summary' + query( { edition: state.edition } ) );
 		} catch ( e ) {
 			if ( e.name === 'AbortError' ) { return; }
+			if ( kpis.querySelector( '.is-skeleton' ) ) { kpis.innerHTML = '<p class="zpvp-kpis__error">Couldn\'t load the totals. Refresh the page to try again.</p>'; }
 			throw e;
 		}
 		const cap = s.capacity;
@@ -317,14 +356,14 @@
 	async function loadRegistrations() {
 		const version = ++loadRegistrationsVersion;
 		const table = $( '#zpvp-reg-table' );
-		table.classList.add( 'is-loading' );
+		if ( isSkeleton( table ) ) { table.innerHTML = tableSkeleton( REG_HEAD, 'Loading registrations' ); }
 		updateExportLink();
 		try {
 			const d = await latestRead( 'registrations', '/registrations' + query( { edition: state.edition, payment: state.payment, search: state.search, category: state.category, page: state.page } ) );
 			state.rows = d.rows;
 			renderPayChips( d.counts );
 			$( '[data-count="registrations"]' ).textContent = d.counts.all || '';
-			table.innerHTML = `<thead><tr><th>Company</th><th>Booths</th><th>Booth #</th><th>Staff</th><th class="zpvp-num">Amount</th><th>Payment</th><th><span class="screen-reader-text">Actions</span></th></tr></thead>
+			table.innerHTML = `${ REG_HEAD }
 				<tbody>${ d.rows.length ? d.rows.map( regRow ).join( '' ) : `<tr class="zpvp-empty-row"><td colspan="7">${ state.search || state.payment ? 'No registrations match these filters.' : 'No registrations for this conference yet. They appear here as vendors submit the registration form.' }</td></tr>` }</tbody>`;
 			$( '#zpvp-pager' ).innerHTML = d.pages > 1
 				? `<button type="button" class="button" data-page="${ d.page - 1 }" ${ d.page <= 1 ? 'disabled' : '' }>Previous</button>
@@ -332,9 +371,10 @@
 				   <button type="button" class="button" data-page="${ d.page + 1 }" ${ d.page >= d.pages ? 'disabled' : '' }>Next</button>`
 				: `<span>${ d.total } registration${ d.total === 1 ? '' : 's' }</span>`;
 		} catch ( e ) {
-			if ( e.name !== 'AbortError' ) { toast( e.message, true ); }
-		} finally {
-			if ( version === loadRegistrationsVersion ) { table.classList.remove( 'is-loading' ); }
+			if ( e.name !== 'AbortError' ) {
+				toast( e.message, true );
+				if ( version === loadRegistrationsVersion && isSkeleton( table ) ) { table.innerHTML = loadError( 7, 'registrations' ); }
+			}
 		}
 	}
 
@@ -453,7 +493,12 @@
 		lastFocus = from || document.activeElement;
 		drawer.hidden = false;
 		document.body.classList.add( 'zpvp-noscroll' );
-		$( '#zpvp-drawer-body' ).innerHTML = '<p class="zpvp-loading" role="status">Loading registration details…</p>';
+		$( '#zpvp-drawer-body' ).innerHTML = `<div class="zpvp-drawer-skel" role="status">
+				<span class="screen-reader-text">Loading registration details…</span>
+				${ skel( '55%', 'xl' ) }${ skel( '35%' ) }
+				<div class="zpvp-drawer-skel__grid">${ [ 1, 2, 3, 4 ].map( () => `<div>${ skel( '50%', 'sm' ) }${ skel( '75%' ) }</div>` ).join( '' ) }</div>
+				${ skel( '30%', 'lg' ) }${ [ '90%', '80%', '85%' ].map( ( w ) => skel( w ) ).join( '' ) }
+			</div>`;
 		try {
 			const registration = await latestRead( 'drawer', `/registrations/${ id }` );
 			if ( version !== drawerVersion || drawer.hidden ) { return; }
@@ -581,16 +626,13 @@
 		const version = ++loadBadgesVersion;
 		renderBadgeChips();
 		const table = $( '#zpvp-badge-table' );
-		table.classList.add( 'is-loading' );
+		if ( isSkeleton( table ) ) { table.innerHTML = tableSkeleton( badgeHead( false ), 'Loading badges' ); }
 		try {
 			const d = await latestRead( 'badges', '/badges' + query( { edition: state.edition, status: state.badgeStatus } ) );
 			const ids = new Set( d.rows.map( ( b ) => b.id ) );
 			state.selected.forEach( ( id ) => ids.has( id ) || state.selected.delete( id ) );
 			const all = d.rows.length && d.rows.every( ( b ) => state.selected.has( b.id ) );
-			table.innerHTML = `<thead><tr>
-					<th class="zpvp-col-check"><input type="checkbox" data-check-all ${ all ? 'checked' : '' } aria-label="Select all badges"></th>
-					<th>Name</th><th>Company</th>${ state.edition ? '' : '<th>Conference</th>' }<th>Type</th><th>Status</th><th>Printed</th>
-				</tr></thead>
+			table.innerHTML = `${ badgeHead( all ) }
 				<tbody>${ d.rows.length ? d.rows.map( ( b ) => `<tr>
 					<td class="zpvp-col-check"><input type="checkbox" data-badge="${ b.id }" ${ state.selected.has( b.id ) ? 'checked' : '' } aria-label="Select ${ esc( b.name ) }"></td>
 					<td><strong>${ esc( b.name ) }</strong><span class="zpvp-sub">${ esc( b.title ) }</span></td>
@@ -602,9 +644,10 @@
 				</tr>` ).join( '' ) : `<tr class="zpvp-empty-row"><td colspan="7">${ state.badgeStatus === 'queued' ? 'Nothing waiting to print.' : 'No badges match this filter.' }</td></tr>` }</tbody>`;
 			updateBulkbar();
 		} catch ( e ) {
-			if ( e.name !== 'AbortError' ) { toast( e.message, true ); }
-		} finally {
-			if ( version === loadBadgesVersion ) { table.classList.remove( 'is-loading' ); }
+			if ( e.name !== 'AbortError' ) {
+				toast( e.message, true );
+				if ( version === loadBadgesVersion && isSkeleton( table ) ) { table.innerHTML = loadError( 7, 'badges' ); }
+			}
 		}
 	}
 

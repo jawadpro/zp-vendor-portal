@@ -25,48 +25,40 @@
 	const STATE_WORD = { ok: 'Ready', warn: 'Check', error: 'Needs attention' };
 
 
-	// Count overlapping requests so an earlier completion cannot hide a later request.
+	// One floating note for requests that take a moment; skipped while the screen shows its
+	// own loader, and delayed so quick responses don't flicker.
 	let pendingRequests = 0;
-	let updatingRequests = 0;
-	let localLoadingRequests = 0;
-	const requestRegions = new Map();
+	let savingRequests = 0;
+	let activityTimer = 0;
 	const activity = document.createElement( 'div' );
 	activity.className = 'zpvp-activity';
 	activity.setAttribute( 'role', 'status' );
 	activity.setAttribute( 'aria-live', 'polite' );
 	activity.hidden = true;
 	root.before( activity );
-	function beginRequest( path, method = 'GET' ) {
-		pendingRequests++;
-		const isUpdate = ! [ 'GET', 'HEAD' ].includes( method.toUpperCase() ) && ! path.endsWith( '/check' );
-		if ( isUpdate ) { updatingRequests++; }
+	function showActivity() {
 		const hasLocalLoader = Array.from( root.querySelectorAll( '.zpvp-loading' ) ).some( ( el ) => el.getClientRects().length > 0 );
-		if ( hasLocalLoader ) { localLoadingRequests++; }
-		activity.textContent = updatingRequests > 0 ? 'Updating content…' : 'Loading…';
-		root.setAttribute( 'aria-busy', 'true' );
-		const selector = path.startsWith( '/summary' ) ? '#zpvp-kpis' : path.startsWith( '/registrations' ) ? '#zpvp-panel-registrations' : path.startsWith( '/badges' ) ? '#zpvp-panel-badges' : null;
-		const region = selector && ! hasLocalLoader ? root.querySelector( selector ) : null;
-		if ( region ) {
-			requestRegions.set( region, ( requestRegions.get( region ) || 0 ) + 1 );
-			region.classList.add( 'zpvp-content-loading' );
-			region.setAttribute( 'aria-busy', 'true' );
+		activity.textContent = savingRequests > 0 ? 'Saving changes…' : 'Loading…';
+		activity.hidden = hasLocalLoader;
+	}
+	function beginRequest( path, method = 'GET' ) {
+		const isSave = ! [ 'GET', 'HEAD' ].includes( method.toUpperCase() ) && ! path.endsWith( '/check' );
+		if ( isSave ) { savingRequests++; }
+		if ( ++pendingRequests === 1 ) {
+			root.setAttribute( 'aria-busy', 'true' );
+			activityTimer = setTimeout( showActivity, 300 );
+		} else if ( ! activity.hidden ) {
+			showActivity();
 		}
-		activity.hidden = localLoadingRequests > 0 || requestRegions.size > 0;
 		return () => {
-			if ( region ) {
-				const remaining = requestRegions.get( region ) - 1;
-				if ( remaining ) { requestRegions.set( region, remaining ); }
-				else { requestRegions.delete( region ); region.classList.remove( 'zpvp-content-loading' ); region.setAttribute( 'aria-busy', 'false' ); }
-			}
-			if ( hasLocalLoader ) { localLoadingRequests--; }
-			pendingRequests--;
-			if ( isUpdate ) { updatingRequests--; }
-			activity.textContent = updatingRequests > 0 ? 'Updating content…' : 'Loading…';
-			activity.hidden = pendingRequests === 0 || localLoadingRequests > 0 || requestRegions.size > 0;
-			if ( pendingRequests === 0 ) {
+			if ( isSave ) { savingRequests--; }
+			if ( --pendingRequests === 0 ) {
+				clearTimeout( activityTimer );
 				activity.hidden = true;
 				activity.textContent = '';
 				root.setAttribute( 'aria-busy', 'false' );
+			} else if ( ! activity.hidden ) {
+				showActivity();
 			}
 		};
 	}

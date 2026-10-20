@@ -90,7 +90,6 @@
 .zpvp-grid tbody tr[data-id] { cursor: pointer; }
 .zpvp-grid tbody tr[data-id]:hover, .zpvp-grid tbody tr[data-id]:focus { background: var(--zp-soft); outline: none; }
 .zpvp-grid tbody tr[data-id]:focus-visible { box-shadow: inset 3px 0 0 var(--zp-red); }
-.zpvp-grid.is-loading { opacity: .5; transition: opacity .15s; }
 .zpvp-grid .zpvp-num { text-align: right; white-space: nowrap; }
 .zpvp-col-company { min-width: 240px; }
 .zpvp-col-actions { white-space: nowrap; text-align: right; }
@@ -212,7 +211,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
 	.zpvp-drawer__panel { animation: none; }
-	.zpvp-toast, .zpvp-grid.is-loading { transition: none; }
+	.zpvp-toast { transition: none; }
 }
 
 .zpvp-booth-badge { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 5px 10px; border: 1px solid #c7d2fe; border-radius: 7px; background: #eef2ff; color: #3730a3; font-size: 12px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
