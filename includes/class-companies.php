@@ -422,7 +422,7 @@ final class Companies {
 		if ( ! $screen || 'post' !== $screen->base || self::POST_TYPE !== $screen->post_type || ! current_user_can( Roles::CAP_MANAGE ) ) { return; }
 		wp_enqueue_style( 'zpvp-contact-search', ZPVP_URL . 'assets/css/contact-search.css', array(), (string) filemtime( ZPVP_PATH . 'assets/css/contact-search.css' ) );
 		wp_enqueue_script( 'zpvp-contact-search', ZPVP_URL . 'assets/js/contact-search.js', array(), (string) filemtime( ZPVP_PATH . 'assets/js/contact-search.js' ), true );
-		wp_localize_script( 'zpvp-contact-search', 'ZPVP_CONTACT_SEARCH', array( 'url' => admin_url( 'admin-ajax.php' ), 'nonce' => wp_create_nonce( 'zpvp_find_vendor' ) ) );
+		wp_localize_script( 'zpvp-contact-search', 'ZPVP_CONTACT_SEARCH', array( 'url' => admin_url( 'admin-ajax.php' ), 'nonce' => wp_create_nonce( 'zpvp_find_vendor' ), 'saveNonce' => wp_create_nonce( 'zpvp_save_contact' ) ) );
 	}
 
 	public function find_vendor(): void {
@@ -431,7 +431,6 @@ final class Companies {
 		$term = isset( $_GET['term'] ) && is_string( $_GET['term'] ) ? sanitize_text_field( wp_unslash( $_GET['term'] ) ) : '';
 		$company = absint( $_GET['company'] ?? 0 );
 		if ( strlen( $term ) < 2 || strlen( $term ) > 100 ) { wp_send_json_success( array() ); }
-		global $wpdb;
 		$query = new \WP_User_Query( array( 'role' => Roles::VENDOR, 'search' => '*' . $term . '*', 'search_columns' => array( 'display_name', 'user_email', 'user_login' ), 'exclude' => array_map( static fn( $u ) => (int) $u->ID, self::contacts( $company ) ), 'number' => 10, 'count_total' => false, 'orderby' => 'display_name', 'order' => 'ASC' ) );
 		$rows = array();
 		foreach ( $query->get_results() as $user ) {
@@ -445,7 +444,7 @@ final class Companies {
 	/** Save a selected contact without submitting the company editor. */
 	public function save_contact(): void {
 		if ( ! current_user_can( Roles::CAP_MANAGE ) ) { wp_send_json_error( array( 'message' => 'Access denied.' ), 403 ); }
-		check_ajax_referer( 'zpvp_find_vendor', 'nonce' );
+		check_ajax_referer( 'zpvp_save_contact', 'nonce' );
 		$company = absint( $_POST['company'] ?? 0 );
 		$email = isset( $_POST['email'] ) && is_string( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
 		if ( self::POST_TYPE !== get_post_type( $company ) || 'trash' === get_post_status( $company ) || ! current_user_can( 'edit_post', $company ) ) { wp_send_json_error( array( 'message' => 'This company cannot be edited.' ), 403 ); }

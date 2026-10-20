@@ -66,7 +66,7 @@
   if(!email.value || save.disabled) return;
   cancel(); close(); save.disabled=true; input.disabled=true; clear.disabled=true; save.textContent='Saving contact…'; status.textContent='Saving contact…'; box.setAttribute('aria-busy','true');
   try {
-   const response=await fetch(ZPVP_CONTACT_SEARCH.url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({action:'zpvp_save_contact',nonce:ZPVP_CONTACT_SEARCH.nonce,company:box.dataset.company,email:email.value})});
+   const response=await fetch(ZPVP_CONTACT_SEARCH.url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({action:'zpvp_save_contact',nonce:ZPVP_CONTACT_SEARCH.saveNonce,company:box.dataset.company,email:email.value})});
    const result=await response.json();
    if(!response.ok || !result.success) throw new Error(result.data?.message || 'Could not save contact. Please try again.');
    const parsed=new DOMParser().parseFromString(result.data.contacts,'text/html');

@@ -286,8 +286,9 @@ final class Builder {
 			return new \WP_Error( 'zpvp_dup', sprintf( '%s already exists. Open that conference instead.', self::plain( $taken ) ), array( 'status' => 409 ) );
 		}
 		$status = sanitize_key( (string) $r->get_param( 'status' ) );
-		// The browser's disabled Publish button is not a server-side validation boundary.
-		if ( 'publish' === $status || ( 'publish' === get_post_status( $id ) && 'draft' !== $status ) ) {
+		// Publishing needs a clean check list, enforced here as well as by the disabled Publish button.
+		// Saves to a conference that is already live stay allowed, so staff can fix one problem at a time.
+		if ( 'publish' === $status && 'publish' !== get_post_status( $id ) ) {
 			$evaluation = self::evaluate( $id, $values );
 			if ( ! empty( $evaluation['counts']['error'] ) ) {
 				return new \WP_Error( 'zpvp_publish_blocked', 'Fix the items marked Needs attention before publishing.', array( 'status' => 400, 'checks' => $evaluation['checks'] ) );
