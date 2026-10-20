@@ -319,6 +319,24 @@
 .zpvp-info summary { padding: 14px 18px; font-weight: 700; color: var(--zpvp-navy); cursor: pointer; }
 .zpvp-info[open] summary { border-bottom: 1px solid var(--zpvp-line); }
 .zpvp-info__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px 28px; padding: 16px 18px 6px; }
+.zpvp .zpvp-pass__info { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 0; border: 0; background: none; color: #fff; font: inherit; font-size: .86rem; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255, 255, 255, .5); cursor: pointer; }
+.zpvp .zpvp-pass__info::before { content: 'i'; display: inline-grid; place-items: center; width: 17px; height: 17px; border: 1.5px solid currentColor; border-radius: 50%; font-size: 11px; font-weight: 700; font-style: italic; font-family: Georgia, serif; text-decoration: none; }
+.zpvp .zpvp-pass__info:hover { text-decoration-color: #fff; }
+.zpvp .zpvp-pass__info:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.zpvp-dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 64px); padding: 0; border: 0; border-radius: var(--zpvp-radius); background: var(--zpvp-paper); color: var(--zpvp-ink); box-shadow: 0 24px 60px rgba(15, 20, 40, .35); overflow: hidden; }
+.zpvp-dialog[open] { display: flex; flex-direction: column; animation: zpvp-dialog-in .18s ease-out; }
+.zpvp-dialog::backdrop { background: rgba(20, 24, 45, .55); }
+.zpvp-dialog.is-static { display: flex; flex-direction: column; width: auto; max-height: none; margin: 0 0 12px; box-shadow: 0 6px 20px rgba(15, 20, 40, .12); border: 1px solid var(--zpvp-line); }
+.zpvp-dialog__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 22px; background: var(--zpvp-navy); border-bottom: 4px solid var(--zpvp-red); color: #fff; }
+.zpvp .zpvp-dialog__head h2 { margin: 0 0 .2em; color: #fff; font-size: 1.15rem; }
+.zpvp-dialog__head p { margin: 0; color: rgba(255, 255, 255, .75); font-size: .88rem; }
+.zpvp .zpvp-dialog__close { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px; margin: -4px -6px 0 0; padding: 0; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .12); color: #fff; font-size: 22px; line-height: 1; cursor: pointer; }
+.zpvp .zpvp-dialog__close:hover { background: rgba(255, 255, 255, .25); }
+.zpvp-dialog__body { overflow-y: auto; }
+.zpvp-dialog__body .zpvp-info__grid { padding: 20px 22px 8px; }
+.zpvp-dialog .zpvp-info__item h4 { margin: 0 0 .4em; color: var(--zpvp-navy); font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; }
+@keyframes zpvp-dialog-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+@media (prefers-reduced-motion: reduce) { .zpvp-dialog[open] { animation: none; } }
 .zpvp-info__item p, .zpvp-info__item ul { font-size: .93rem; }
 .zpvp-info__item ul { margin: 0 0 1em 1.1em; padding: 0; }
 

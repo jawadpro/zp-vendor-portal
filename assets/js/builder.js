@@ -24,7 +24,48 @@
 	const RANK = { ok: 0, info: 0, warn: 1, error: 2 };
 	const STATE_WORD = { ok: 'Ready', warn: 'Check', error: 'Needs attention' };
 
+
+	// One floating note for requests that take a moment; skipped while the screen shows its
+	// own loader, and delayed so quick responses don't flicker.
+	let pendingRequests = 0;
+	let savingRequests = 0;
+	let activityTimer = 0;
+	const activity = document.createElement( 'div' );
+	activity.className = 'zpvp-activity';
+	activity.setAttribute( 'role', 'status' );
+	activity.setAttribute( 'aria-live', 'polite' );
+	activity.hidden = true;
+	root.before( activity );
+	function showActivity() {
+		const hasLocalLoader = Array.from( root.querySelectorAll( '.zpvp-loading' ) ).some( ( el ) => el.getClientRects().length > 0 );
+		activity.textContent = savingRequests > 0 ? 'Saving changes…' : 'Loading…';
+		activity.hidden = hasLocalLoader;
+	}
+	function beginRequest( path, method = 'GET' ) {
+		const isSave = ! [ 'GET', 'HEAD' ].includes( method.toUpperCase() ) && ! path.endsWith( '/check' );
+		if ( isSave ) { savingRequests++; }
+		if ( ++pendingRequests === 1 ) {
+			root.setAttribute( 'aria-busy', 'true' );
+			activityTimer = setTimeout( showActivity, 300 );
+		} else if ( ! activity.hidden ) {
+			showActivity();
+		}
+		return () => {
+			if ( isSave ) { savingRequests--; }
+			if ( --pendingRequests === 0 ) {
+				clearTimeout( activityTimer );
+				activity.hidden = true;
+				activity.textContent = '';
+				root.setAttribute( 'aria-busy', 'false' );
+			} else if ( ! activity.hidden ) {
+				showActivity();
+			}
+		};
+	}
+
 	async function api( path, opts = {} ) {
+		const finish = beginRequest( path, opts.method );
+		try {
 		const res = await fetch( C.rest + path, {
 			method: opts.method || 'GET',
 			headers: { 'X-WP-Nonce': C.nonce, 'Content-Type': 'application/json' },
@@ -37,6 +78,9 @@
 			throw new Error( data.message || 'Something went wrong. Please try again.' );
 		}
 		return data;
+		} finally {
+			finish();
+		}
 	}
 
 	let toastTimer;
@@ -100,9 +144,9 @@
 			return;
 		}
 		const params = new URL( window.location.href ).searchParams;
-		const first = Number( C.initial ) || S.boot.default;
+		const first = params.get( 'new' ) ? 0 : Number( C.initial );
 		if ( ! first ) {
-			renderEmpty();
+			renderLauncher();
 		} else {
 			await load( first );
 		}
@@ -122,7 +166,7 @@
 		}
 		[ 'new', 'zpvp_copy', 'zpvp_notice' ].forEach( ( k ) => params.delete( k ) );
 		const clean = new URL( window.location.href );
-		clean.search = params.toString();
+		[ 'new', 'zpvp_copy', 'zpvp_notice' ].forEach( ( k ) => clean.searchParams.delete( k ) );
 		window.history.replaceState( null, '', clean.toString() );
 	}
 
@@ -142,7 +186,7 @@
 		} catch ( e ) {
 			toast( e.message, true );
 			if ( ! S.data ) {
-				renderEmpty( e.message );
+				renderLauncher( e.message );
 			}
 		} finally {
 			root.classList.remove( 'is-loading' );
@@ -193,6 +237,22 @@
 		root.innerHTML = '<div class="zpvp-b__head"><h1 class="zpvp-b__title">Conference Builder</h1></div>'
 			+ '<div class="zpvp-b__empty"><h2>No conferences yet</h2><p>' + esc( msg || 'Create the first conference to start.' ) + '</p>'
 			+ '<button type="button" class="button button-primary" data-act="new">Add conference</button></div>';
+	}
+
+	/** Opening the menu never chooses a conference on the user's behalf. */
+	function renderLauncher( msg ) {
+		if ( ! S.boot.conferences.length ) {
+			renderEmpty( msg );
+			return;
+		}
+		root.innerHTML = '<div class="zpvp-b__head"><h1 class="zpvp-b__title">Conference Builder</h1></div>'
+			+ '<div class="zpvp-b__empty"><h2>Which conference would you like to work on?</h2>'
+			+ ( msg ? '<p role="alert">' + esc( msg ) + '</p>' : '' )
+			+ '<p>Open an existing conference or create a new one.</p>'
+			+ '<p><label for="zpvp-b-open">Conference</label></p>'
+			+ '<p><select id="zpvp-b-open" class="zpvp-b__pick"><option value="">Choose a conference…</option>' + pickerHtml() + '</select></p>'
+			+ '<p><button type="button" class="button button-primary" data-act="open-conference" disabled>Open conference</button> '
+			+ '<button type="button" class="button" data-act="new">Create new conference</button></p></div>';
 	}
 
 	function pickerHtml() {
@@ -593,7 +653,7 @@
 	function connectorTable( formId ) {
 		const d = S.forms[ formId ];
 		if ( ! d ) {
-			return '<p class="zpvp-muted">Loading fields…</p>';
+			return '<p class="zpvp-loading" role="status">Loading form fields…</p>';
 		}
 		if ( ! d.form.exists ) {
 			return '<p class="zpvp-line is-error">This form no longer exists in Gravity Forms.</p>';
@@ -842,7 +902,9 @@
 
 	root.addEventListener( 'change', ( e ) => {
 		const t = e.target;
-		if ( t.id === 'zpvp-b-pick' ) {
+		if ( t.id === 'zpvp-b-open' ) {
+			$( '[data-act="open-conference"]' ).disabled = ! t.value;
+		} else if ( t.id === 'zpvp-b-pick' ) {
 			const id = Number( t.value );
 			if ( S.dirty ) {
 				t.value = String( S.id );
@@ -876,6 +938,13 @@
 	root.addEventListener( 'click', ( e ) => {
 		const t = e.target.closest( 'button, a' );
 		if ( ! t || ! root.contains( t ) ) {
+			return;
+		}
+		if ( t.dataset.act === 'open-conference' ) {
+			const id = Number( $( '#zpvp-b-open' ).value );
+			if ( id && ! root.classList.contains( 'is-loading' ) ) {
+				load( id );
+			}
 			return;
 		}
 		if ( t.dataset.goto ) {

@@ -58,13 +58,18 @@ final class Vendor_Attendees {
 
 	/** Unpaid extra badges: pay online on the Name Badge Order Form, or download an invoice. */
 	private static function extra_badges( object $reg ): void {
-		$owed = Documents::owed_badges( $reg );
-		$pay  = Badge_Orders::order_url( (int) $reg->id );
+		$owed    = Documents::owed_badges( $reg );
+		$pay     = Badge_Orders::order_url( (int) $reg->id );
+		$orders  = Badge_Orders::for_registration( (int) $reg->id );
+		$waiting = array_sum( array_map( static fn( $o ) => 2 === (int) $o->applied ? (int) $o->additional_qty : 0, $orders ) );
 		if ( $owed ) {
 			echo '<div class="zpvp-notice zpvp-notice--warning"><p>';
 			echo esc_html( sprintf( /* translators: %s: amount */ __( 'Amount due for extra badges: %s.', 'zp-vendor-portal' ), '$' . number_format( $owed * Badge_Orders::price(), 2 ) ) );
+			if ( $waiting ) {
+				echo ' ' . esc_html( sprintf( /* translators: %d: number of badges */ _n( 'Your order for %d badge is waiting for payment to be confirmed.', 'Your order for %d badges is waiting for payment to be confirmed.', $waiting, 'zp-vendor-portal' ), $waiting ) );
+			}
 			echo '</p><p>';
-			if ( $pay ) {
+			if ( $pay && $waiting < $owed ) {
 				echo '<a class="zpvp-btn zpvp-btn--accent" href="' . esc_url( $pay ) . '">' . esc_html__( 'Pay for extra badges', 'zp-vendor-portal' ) . '</a> ';
 			}
 			echo '<a class="zpvp-btn" href="' . esc_url( Documents::badge_invoice_url( (int) $reg->id ) ) . '" target="_blank" rel="noopener">' . esc_html__( 'Invoice for extra badges', 'zp-vendor-portal' ) . '<span class="screen-reader-text"> ' . esc_html__( '(PDF, opens in a new tab)', 'zp-vendor-portal' ) . '</span></a>';
@@ -72,7 +77,6 @@ final class Vendor_Attendees {
 		} elseif ( $pay && ! Attendees::vendor_can_edit( $reg ) ) {
 			echo '<p><a class="zpvp-link" href="' . esc_url( $pay ) . '">' . esc_html__( 'Need more name badges? Order them here.', 'zp-vendor-portal' ) . '</a></p>';
 		}
-		$orders = Badge_Orders::for_registration( (int) $reg->id );
 		if ( $orders ) {
 			echo '<details class="zpvp-info"><summary>' . esc_html( sprintf( _n( '%d badge order', '%d badge orders', count( $orders ), 'zp-vendor-portal' ), count( $orders ) ) ) . '</summary><ul>';
 			foreach ( $orders as $o ) {

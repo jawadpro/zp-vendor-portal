@@ -136,21 +136,26 @@ final class Registrations {
 
 		$data['created_at'] = $now;
 		$data['updated_at'] = $now;
-		$wpdb->insert( self::table(), $data );
+		if ( false === $wpdb->insert( self::table(), $data ) ) {
+			return 0;
+		}
 		$id = (int) $wpdb->insert_id;
 
 		do_action( 'zpvp_registration_created', $id, $data );
 		return $id;
 	}
 
-	public static function update( int $id, array $data ): void {
+	public static function update( int $id, array $data ): bool {
 		global $wpdb;
 		$old = isset( $data['payment_status'] ) ? self::get( $id ) : null;
 		$data['updated_at'] = current_time( 'mysql' );
-		$wpdb->update( self::table(), $data, array( 'id' => $id ) );
+		if ( false === $wpdb->update( self::table(), $data, array( 'id' => $id ) ) ) {
+			return false;
+		}
 		if ( $old && $old->payment_status !== $data['payment_status'] ) {
 			do_action( 'zpvp_payment_status_changed', $id, $old->payment_status, $data['payment_status'] );
 		}
+		return true;
 	}
 
 	public static function set_payment_status_for_entry( int $entry_id, string $status ): void {
@@ -175,7 +180,7 @@ final class Registrations {
 	public static function booths_taken( int $edition_id ): int {
 		global $wpdb;
 		return (int) $wpdb->get_var(
-			$wpdb->prepare( 'SELECT COALESCE(SUM(booths),0) FROM ' . self::table() . " WHERE edition_id = %d AND status = 'active' AND payment_status <> 'failed'", $edition_id )
+			$wpdb->prepare( 'SELECT COALESCE(SUM(booths),0) FROM ' . self::table() . " WHERE edition_id = %d AND status = 'active' AND payment_status NOT IN ('failed','refunded')", $edition_id )
 		);
 	}
 

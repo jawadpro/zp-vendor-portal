@@ -12,6 +12,7 @@ final class Admin_Reports {
 
 	public function register(): void {
 		add_action( 'admin_menu', array( $this, 'menu' ), 15 );
+		add_action( 'admin_enqueue_scripts', array( $this, 'assets' ) );
 		add_action( 'admin_post_zpvp_export_attendees', array( $this, 'export_attendees' ) );
 		add_action( 'admin_post_zpvp_export_badges', array( $this, 'export_badges' ) );
 		add_action( 'admin_post_zpvp_export_contacts', array( $this, 'export_contacts' ) );
@@ -19,6 +20,12 @@ final class Admin_Reports {
 
 	public function menu(): void {
 		add_submenu_page( 'zpvp', 'Reports', 'Reports', Roles::CAP_MANAGE, 'zpvp-reports', array( $this, 'render' ) );
+	}
+
+	public function assets( $hook ): void {
+		if ( str_ends_with( (string) $hook, '_page_zpvp-reports' ) ) {
+			wp_enqueue_style( 'zpvp-admin-settings', ZPVP_URL . 'assets/css/admin-settings.css', array(), ZPVP_VERSION );
+		}
 	}
 
 	/** Per-conference rows for the current filters. */
@@ -78,110 +85,180 @@ final class Admin_Reports {
 				$t[ $k ] += (float) $r->$k;
 			}
 		}
-		$cards = array(
-			'Registrations'       => number_format( $t['registrations'] ),
-			'Booths'              => number_format( $t['booths'] ),
-			'Booth personnel'     => number_format( $t['attendees'] ),
-			'Registered value'    => self::money( $t['revenue'] ),
-			'Paid'                => self::money( $t['paid'] ),
-			'Outstanding'         => self::money( $t['outstanding'] ),
+		$collected = $t['revenue'] > 0 ? (int) round( 100 * $t['paid'] / $t['revenue'] ) : null;
+		$cards     = array(
+			array( 'Registrations', number_format( $t['registrations'] ), '' ),
+			array( 'Booths sold', number_format( $t['booths'] ), '' ),
+			array( 'Booth personnel', number_format( $t['attendees'] ), '' ),
+			array( 'Registered value', self::money( $t['revenue'] ), '' ),
+			array( 'Paid', self::money( $t['paid'] ), null !== $collected ? $collected . '% collected' : '' ),
+			array( 'Outstanding', self::money( $t['outstanding'] ), $t['outstanding'] > 0 ? 'Awaiting or pending' : 'Nothing owed' ),
+		);
+		$filtered = $f['edition'] || $f['year'] || $f['payment'] || $f['category'] || '' !== $f['search'] || $f['from'] || $f['to'];
+		$exports  = array(
+			array( 'zpvp_export_registrations', 'Registrations', 'One row per registration, with payment, booths and vendor categories.' ),
+			array( 'zpvp_export_attendees', 'Booth personnel', 'Everyone listed on a booth, with company and booth number.' ),
+			array( 'zpvp_export_badges', 'Badges', 'Every badge with its print status, for badge printing or checks.' ),
+			array( 'zpvp_export_contacts', 'Vendor contacts', 'Every contact at every vendor company, for Mailchimp or Brevo. Only the category filter applies.' ),
 		);
 		?>
-		<div class="wrap">
-			<h1>Reports</h1>
+		<div class="wrap zpvp-settings zpvp-report">
+			<header class="zpvp-settings__head">
+				<h1>Reports</h1>
+				<p>Registrations, booth sales and payments by conference. Filter the figures below, then export the same selection as CSV.</p>
+			</header>
 
-			<form method="get" style="margin:12px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+			<form method="get" class="zpvp-report__filters">
 				<input type="hidden" name="page" value="zpvp-reports">
-				<select name="edition">
-					<option value="">All conferences</option>
-					<?php foreach ( $editions as $e ) : ?>
-						<option value="<?php echo (int) $e->ID; ?>" <?php selected( $f['edition'], $e->ID ); ?>><?php echo esc_html( $e->post_title ); ?></option>
-					<?php endforeach; ?>
-				</select>
-				<select name="year">
-					<option value="">All years</option>
-					<?php foreach ( $years as $y ) : ?>
-						<option value="<?php echo (int) $y; ?>" <?php selected( $f['year'], (int) $y ); ?>><?php echo (int) $y; ?></option>
-					<?php endforeach; ?>
-				</select>
-				<select name="payment">
-					<option value="">All payment statuses</option>
-					<option value="outstanding" <?php selected( $f['payment'], 'outstanding' ); ?>>Outstanding (awaiting or pending)</option>
-					<?php foreach ( Registrations::PAYMENT_STATUSES as $k => $l ) : ?>
-						<option value="<?php echo esc_attr( $k ); ?>" <?php selected( $f['payment'], $k ); ?>><?php echo esc_html( $l ); ?></option>
-					<?php endforeach; ?>
-				</select>
+				<div class="zpvp-report__field">
+					<label for="zpvp-r-edition">Conference</label>
+					<select id="zpvp-r-edition" name="edition">
+						<option value="">All conferences</option>
+						<?php foreach ( $editions as $e ) : ?>
+							<option value="<?php echo (int) $e->ID; ?>" <?php selected( $f['edition'], $e->ID ); ?>><?php echo esc_html( $e->post_title ); ?></option>
+						<?php endforeach; ?>
+					</select>
+				</div>
+				<div class="zpvp-report__field">
+					<label for="zpvp-r-year">Year</label>
+					<select id="zpvp-r-year" name="year">
+						<option value="">All years</option>
+						<?php foreach ( $years as $y ) : ?>
+							<option value="<?php echo (int) $y; ?>" <?php selected( $f['year'], (int) $y ); ?>><?php echo (int) $y; ?></option>
+						<?php endforeach; ?>
+					</select>
+				</div>
+				<div class="zpvp-report__field">
+					<label for="zpvp-r-payment">Payment</label>
+					<select id="zpvp-r-payment" name="payment">
+						<option value="">All payment statuses</option>
+						<option value="outstanding" <?php selected( $f['payment'], 'outstanding' ); ?>>Outstanding (awaiting or pending)</option>
+						<?php foreach ( Registrations::PAYMENT_STATUSES as $k => $l ) : ?>
+							<option value="<?php echo esc_attr( $k ); ?>" <?php selected( $f['payment'], $k ); ?>><?php echo esc_html( $l ); ?></option>
+						<?php endforeach; ?>
+					</select>
+				</div>
 				<?php if ( Companies::all_categories() ) : ?>
-				<select name="category">
-					<option value="">All vendor categories</option>
-					<?php foreach ( Companies::all_categories() as $tid => $label ) : ?>
-						<option value="<?php echo (int) $tid; ?>" <?php selected( (int) $f['category'], (int) $tid ); ?>><?php echo esc_html( $label ); ?></option>
-					<?php endforeach; ?>
-				</select>
+				<div class="zpvp-report__field">
+					<label for="zpvp-r-category">Vendor category</label>
+					<select id="zpvp-r-category" name="category">
+						<option value="">All categories</option>
+						<?php foreach ( Companies::all_categories() as $tid => $label ) : ?>
+							<option value="<?php echo (int) $tid; ?>" <?php selected( (int) $f['category'], (int) $tid ); ?>><?php echo esc_html( $label ); ?></option>
+						<?php endforeach; ?>
+					</select>
+				</div>
 				<?php endif; ?>
-				<input type="search" name="s" placeholder="Vendor, contact or email" value="<?php echo esc_attr( $f['search'] ); ?>">
-				<label>From <input type="date" name="from" value="<?php echo esc_attr( $f['from'] ); ?>"></label>
-				<label>To <input type="date" name="to" value="<?php echo esc_attr( $f['to'] ); ?>"></label>
-				<?php submit_button( 'Apply', '', '', false ); ?>
-				<a href="<?php echo esc_url( admin_url( 'admin.php?page=zpvp-reports' ) ); ?>">Reset</a>
+				<div class="zpvp-report__field zpvp-report__field--search">
+					<label for="zpvp-r-search">Vendor</label>
+					<input type="search" id="zpvp-r-search" name="s" placeholder="Company, contact or email" value="<?php echo esc_attr( $f['search'] ); ?>">
+				</div>
+				<div class="zpvp-report__field">
+					<label for="zpvp-r-from">Registered from</label>
+					<input type="date" id="zpvp-r-from" name="from" value="<?php echo esc_attr( $f['from'] ); ?>">
+				</div>
+				<div class="zpvp-report__field">
+					<label for="zpvp-r-to">to</label>
+					<input type="date" id="zpvp-r-to" name="to" value="<?php echo esc_attr( $f['to'] ); ?>">
+				</div>
+				<div class="zpvp-report__buttons">
+					<?php submit_button( 'Apply filters', 'primary', '', false ); ?>
+					<?php if ( $filtered ) : ?><a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=zpvp-reports' ) ); ?>">Clear</a><?php endif; ?>
+				</div>
 			</form>
 
-			<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin:16px 0">
-				<?php foreach ( $cards as $label => $value ) : ?>
-					<div style="background:#fff;border:1px solid #dcdcde;padding:14px 16px">
-						<div style="color:#50575e;font-size:12px;text-transform:uppercase;letter-spacing:.04em"><?php echo esc_html( $label ); ?></div>
-						<div style="font-size:22px;font-weight:600;margin-top:4px"><?php echo esc_html( $value ); ?></div>
+			<div class="zpvp-report__kpis">
+				<?php foreach ( $cards as $c ) : ?>
+					<div class="zpvp-report__kpi">
+						<span class="zpvp-report__kpi-label"><?php echo esc_html( $c[0] ); ?></span>
+						<strong class="zpvp-report__kpi-value"><?php echo esc_html( $c[1] ); ?></strong>
+						<?php if ( 'Paid' === $c[0] && null !== $collected ) : ?>
+							<span class="zpvp-report__meter" aria-hidden="true"><span style="width:<?php echo (int) min( 100, $collected ); ?>%"></span></span>
+						<?php endif; ?>
+						<?php if ( $c[2] ) : ?><span class="zpvp-report__kpi-note"><?php echo esc_html( $c[2] ); ?></span><?php endif; ?>
 					</div>
 				<?php endforeach; ?>
 			</div>
 
-			<h2>By conference</h2>
-			<table class="widefat striped">
-				<thead><tr>
-					<th>Conference</th><th>Registrations</th><th>Booths sold / capacity</th><th>Personnel</th>
-					<th>Registered value</th><th>Paid</th><th>Outstanding</th>
-				</tr></thead>
-				<tbody>
-				<?php if ( ! $rows ) : ?>
-					<tr><td colspan="7">No registrations match these filters.</td></tr>
-				<?php endif; ?>
-				<?php foreach ( $rows as $r ) : ?>
-					<?php
-					$cap   = $r->edition_id ? (int) get_post_meta( (int) $r->edition_id, 'booth_capacity', true ) : 0;
-					$label = Registrations::conference_label( $r );
-					$pct   = $cap ? min( 100, round( 100 * (int) $r->booths / $cap ) ) : null;
-					$link  = admin_url( 'admin.php?page=zpvp-registrations' . ( $r->edition_id ? '&edition=' . (int) $r->edition_id : '' ) );
-					?>
-					<tr>
-						<td><a href="<?php echo esc_url( $link ); ?>"><?php echo esc_html( $label ); ?></a>
-							<?php if ( ! $r->edition_id ) : ?><br><span class="description">No conference set up for this year yet</span><?php endif; ?>
-							<?php if ( (int) $r->failed ) : ?><br><span class="description"><?php echo esc_html( (int) $r->failed . ' failed payment(s) excluded' ); ?></span><?php endif; ?>
-						</td>
-						<td><?php echo esc_html( number_format( (int) $r->registrations ) ); ?></td>
-						<td>
-							<?php echo esc_html( (int) $r->booths . ' / ' . ( $cap ? $cap : '∞' ) ); ?>
-							<?php if ( null !== $pct ) : ?>
-								<div style="background:#f0f0f1;height:6px;margin-top:4px;max-width:140px"><div style="background:<?php echo $pct >= 100 ? '#b42318' : '#1d5c8c'; ?>;height:6px;width:<?php echo (int) $pct; ?>%"></div></div>
-							<?php endif; ?>
-						</td>
-						<td><?php echo esc_html( number_format( (int) $r->attendees ) ); ?></td>
-						<td><?php echo esc_html( self::money( $r->revenue ) ); ?></td>
-						<td><?php echo esc_html( self::money( $r->paid ) ); ?></td>
-						<td><?php echo (float) $r->outstanding > 0 ? '<strong>' . esc_html( self::money( $r->outstanding ) ) . '</strong>' : esc_html( self::money( 0 ) ); ?></td>
-					</tr>
-				<?php endforeach; ?>
-				</tbody>
-			</table>
-			<p class="description">Amounts are the booth amounts recorded per conference. On the annual form, the one-time annual fee is not assigned to a single conference, so it is not included here; the full amount appears on the vendor's invoice.</p>
+			<section class="zpvp-table-card zpvp-report__table">
+				<div class="zpvp-report__section-head">
+					<h2 class="zpvp-table-card__title">By conference</h2>
+					<span class="zpvp-count"><?php echo count( $rows ); ?></span>
+				</div>
+				<div class="zpvp-report__scroll">
+				<table class="widefat striped">
+					<thead><tr>
+						<th scope="col">Conference</th>
+						<th scope="col" class="zpvp-num">Registrations</th>
+						<th scope="col">Booths sold</th>
+						<th scope="col" class="zpvp-num">Personnel</th>
+						<th scope="col" class="zpvp-num">Registered value</th>
+						<th scope="col" class="zpvp-num">Paid</th>
+						<th scope="col" class="zpvp-num">Outstanding</th>
+					</tr></thead>
+					<tbody>
+					<?php if ( ! $rows ) : ?>
+						<tr><td colspan="7" class="zpvp-report__empty">No registrations match these filters.</td></tr>
+					<?php endif; ?>
+					<?php foreach ( $rows as $r ) : ?>
+						<?php
+						$cap   = $r->edition_id ? (int) get_post_meta( (int) $r->edition_id, 'booth_capacity', true ) : 0;
+						$label = Registrations::conference_label( $r );
+						$pct   = $cap ? min( 100, (int) round( 100 * (int) $r->booths / $cap ) ) : null;
+						$link  = admin_url( 'admin.php?page=zpvp' . ( $r->edition_id ? '&edition=' . (int) $r->edition_id : '' ) );
+						?>
+						<tr>
+							<td>
+								<a class="zpvp-report__conf" href="<?php echo esc_url( $link ); ?>"><?php echo esc_html( $label ); ?></a>
+								<?php if ( ! $r->edition_id ) : ?><span class="zpvp-muted">No conference set up for this year yet</span><?php endif; ?>
+								<?php if ( (int) $r->failed ) : ?><span class="zpvp-muted"><?php echo esc_html( sprintf( _n( '%d failed payment not counted', '%d failed payments not counted', (int) $r->failed, 'zp-vendor-portal' ), (int) $r->failed ) ); ?></span><?php endif; ?>
+							</td>
+							<td class="zpvp-num"><?php echo esc_html( number_format( (int) $r->registrations ) ); ?></td>
+							<td class="zpvp-report__booth-cell">
+								<span class="zpvp-report__booths"><?php echo esc_html( (int) $r->booths . ( $cap ? ' of ' . $cap : '' ) ); ?></span>
+								<?php if ( null !== $pct ) : ?>
+									<span class="zpvp-report__meter<?php echo $pct >= 100 ? ' is-full' : ''; ?>" title="<?php echo esc_attr( $pct . '% of capacity' ); ?>"><span style="width:<?php echo (int) $pct; ?>%"></span></span>
+								<?php else : ?>
+									<span class="zpvp-muted">No capacity set</span>
+								<?php endif; ?>
+							</td>
+							<td class="zpvp-num"><?php echo esc_html( number_format( (int) $r->attendees ) ); ?></td>
+							<td class="zpvp-num"><?php echo esc_html( self::money( $r->revenue ) ); ?></td>
+							<td class="zpvp-num"><?php echo esc_html( self::money( $r->paid ) ); ?></td>
+							<td class="zpvp-num"><?php echo (float) $r->outstanding > 0 ? '<span class="zpvp-report__owed">' . esc_html( self::money( $r->outstanding ) ) . '</span>' : '<span class="zpvp-muted-inline">' . esc_html( self::money( 0 ) ) . '</span>'; ?></td>
+						</tr>
+					<?php endforeach; ?>
+					</tbody>
+					<?php if ( count( $rows ) > 1 ) : ?>
+					<tfoot><tr>
+						<th scope="row">Total</th>
+						<td class="zpvp-num"><?php echo esc_html( number_format( $t['registrations'] ) ); ?></td>
+						<td><?php echo esc_html( number_format( $t['booths'] ) ); ?></td>
+						<td class="zpvp-num"><?php echo esc_html( number_format( $t['attendees'] ) ); ?></td>
+						<td class="zpvp-num"><?php echo esc_html( self::money( $t['revenue'] ) ); ?></td>
+						<td class="zpvp-num"><?php echo esc_html( self::money( $t['paid'] ) ); ?></td>
+						<td class="zpvp-num"><?php echo esc_html( self::money( $t['outstanding'] ) ); ?></td>
+					</tr></tfoot>
+					<?php endif; ?>
+				</table>
+				</div>
+				<p class="zpvp-report__note">Amounts are the booth amounts recorded for each conference. The one-time fee on the annual form isn't tied to a single conference, so it isn't included here; the full amount is on the vendor's invoice.</p>
+			</section>
 
-			<h2>Export (uses the filters above)</h2>
-			<p>
-				<a class="button" href="<?php echo esc_url( $this->export_url( 'zpvp_export_registrations', $f ) ); ?>">Registrations CSV</a>
-				<a class="button" href="<?php echo esc_url( $this->export_url( 'zpvp_export_attendees', $f ) ); ?>">Booth personnel CSV</a>
-				<a class="button" href="<?php echo esc_url( $this->export_url( 'zpvp_export_badges', $f ) ); ?>">Badges CSV</a>
-				<a class="button" href="<?php echo esc_url( $this->export_url( 'zpvp_export_contacts', $f ) ); ?>">Vendor contacts CSV</a>
-			</p>
-			<p class="description">Vendor contacts lists every contact at every vendor company with their categories and the last conference they registered for (only the category filter applies). Use it to import vendors into Mailchimp or Brevo.</p>
+			<section class="zpvp-table-card">
+				<div class="zpvp-report__section-head">
+					<h2 class="zpvp-table-card__title">Export to CSV</h2>
+				</div>
+				<p class="zpvp-table-card__intro"><?php echo $filtered ? 'Exports use the filters above.' : 'Exports include everything. Apply filters above to narrow them.'; ?></p>
+				<div class="zpvp-report__exports">
+					<?php foreach ( $exports as $x ) : ?>
+						<a class="zpvp-report__export" href="<?php echo esc_url( $this->export_url( $x[0], $f ) ); ?>">
+							<span class="dashicons dashicons-download" aria-hidden="true"></span>
+							<span><strong><?php echo esc_html( $x[1] ); ?></strong><span class="zpvp-muted"><?php echo esc_html( $x[2] ); ?></span></span>
+						</a>
+					<?php endforeach; ?>
+				</div>
+			</section>
 		</div>
 		<?php
 	}

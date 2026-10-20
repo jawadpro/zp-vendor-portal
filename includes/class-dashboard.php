@@ -10,6 +10,9 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Dashboard {
 
+	/** Conference info popup content per edition, built once per page. */
+	private array $info = array();
+
 	public function register(): void {
 		add_shortcode( 'zpvp_dashboard', array( $this, 'render' ) );
 	}
@@ -67,8 +70,8 @@ final class Dashboard {
 			<?php endif; ?>
 		</section>
 
+		<?php $this->info_dialogs(); ?>
 		<?php $this->open_conferences( $regs ); ?>
-		<?php $this->resources( $upcoming ); ?>
 		<?php $this->previous( $previous ); ?>
 		<?php
 		return (string) ob_get_clean();
@@ -86,6 +89,9 @@ final class Dashboard {
 				<span class="zpvp-pass__hole" aria-hidden="true"></span>
 				<h3 class="zpvp-pass__event"><?php echo esc_html( Registrations::conference_label( $reg ) ); ?></h3>
 				<?php if ( $when ) : ?><p class="zpvp-pass__when"><?php echo esc_html( $when ); ?></p><?php endif; ?>
+				<?php if ( $reg->edition_id && '' !== $this->info_html( (int) $reg->edition_id ) ) : ?>
+					<button type="button" class="zpvp-pass__info" data-zpvp-dialog="zpvp-info-<?php echo (int) $reg->edition_id; ?>" aria-haspopup="dialog"><?php esc_html_e( 'Conference info', 'zp-vendor-portal' ); ?></button>
+				<?php endif; ?>
 			</header>
 			<div class="zpvp-pass__body">
 				<div class="zpvp-pass__booth">
@@ -179,41 +185,77 @@ final class Dashboard {
 		<?php
 	}
 
-	/** Hotel, decorator, electricity and documents for upcoming registrations. */
-	private function resources( array $regs ): void {
-		$editions = array_unique( array_filter( array_map( static fn( $r ) => (int) $r->edition_id, $regs ) ) );
-		$blocks   = array();
-		foreach ( $editions as $id ) {
-			$sections = array();
-			foreach ( array( 'hotel_info' => __( 'Hotel', 'zp-vendor-portal' ), 'decorator_info' => __( 'Decorator', 'zp-vendor-portal' ), 'electricity_info' => __( 'Electricity', 'zp-vendor-portal' ) ) as $key => $label ) {
-				$html = (string) get_post_meta( $id, $key, true );
-				if ( '' !== trim( wp_strip_all_tags( $html ) ) ) {
-					$sections[] = '<div class="zpvp-info__item"><h4>' . esc_html( $label ) . '</h4>' . wp_kses_post( wpautop( $html ) ) . '</div>';
-				}
-			}
-			$files = array();
-			$plan  = (int) get_post_meta( $id, 'floor_plan', true );
-			if ( $plan && wp_get_attachment_url( $plan ) ) {
-				$files[] = '<li><a href="' . esc_url( wp_get_attachment_url( $plan ) ) . '" target="_blank" rel="noopener">' . esc_html__( 'Floor plan', 'zp-vendor-portal' ) . '</a></li>';
-			}
-			$count = (int) get_post_meta( $id, 'resource_files', true );
-			for ( $i = 0; $i < $count; $i++ ) {
-				$file  = (int) get_post_meta( $id, 'resource_files_' . $i . '_file', true );
-				$label = (string) get_post_meta( $id, 'resource_files_' . $i . '_label', true );
-				if ( $file && wp_get_attachment_url( $file ) ) {
-					$files[] = '<li><a href="' . esc_url( wp_get_attachment_url( $file ) ) . '" target="_blank" rel="noopener">' . esc_html( $label ? $label : get_the_title( $file ) ) . '</a></li>';
-				}
-			}
-			if ( $files ) {
-				$sections[] = '<div class="zpvp-info__item"><h4>' . esc_html__( 'Documents', 'zp-vendor-portal' ) . '</h4><ul>' . implode( '', $files ) . '</ul></div>';
-			}
-			if ( $sections ) {
-				$blocks[] = '<details class="zpvp-info"><summary>' . esc_html( get_the_title( $id ) ) . '</summary><div class="zpvp-info__grid">' . implode( '', $sections ) . '</div></details>';
+	/** Hotel, decorator, electricity and documents for one conference; empty when there is nothing to show. */
+	private function info_html( int $id ): string {
+		if ( isset( $this->info[ $id ] ) ) {
+			return $this->info[ $id ];
+		}
+		$sections = array();
+		foreach ( array( 'hotel_info' => __( 'Hotel', 'zp-vendor-portal' ), 'decorator_info' => __( 'Decorator', 'zp-vendor-portal' ), 'electricity_info' => __( 'Electricity', 'zp-vendor-portal' ) ) as $key => $label ) {
+			$html = (string) get_post_meta( $id, $key, true );
+			if ( '' !== trim( wp_strip_all_tags( $html ) ) ) {
+				$sections[] = '<div class="zpvp-info__item"><h4>' . esc_html( $label ) . '</h4>' . wp_kses_post( wpautop( $html ) ) . '</div>';
 			}
 		}
-		if ( $blocks ) {
-			echo '<section class="zpvp-section" aria-labelledby="zpvp-h-info"><h2 id="zpvp-h-info">' . esc_html__( 'Conference information', 'zp-vendor-portal' ) . '</h2>' . implode( '', $blocks ) . '</section>'; // phpcs:ignore WordPress.Security.EscapeOutput -- escaped above.
+		$files = array();
+		$plan  = (int) get_post_meta( $id, 'floor_plan', true );
+		if ( $plan && wp_get_attachment_url( $plan ) ) {
+			$files[] = '<li><a href="' . esc_url( wp_get_attachment_url( $plan ) ) . '" target="_blank" rel="noopener">' . esc_html__( 'Floor plan', 'zp-vendor-portal' ) . '</a></li>';
 		}
+		$count = (int) get_post_meta( $id, 'resource_files', true );
+		for ( $i = 0; $i < $count; $i++ ) {
+			$file  = (int) get_post_meta( $id, 'resource_files_' . $i . '_file', true );
+			$label = (string) get_post_meta( $id, 'resource_files_' . $i . '_label', true );
+			if ( $file && wp_get_attachment_url( $file ) ) {
+				$files[] = '<li><a href="' . esc_url( wp_get_attachment_url( $file ) ) . '" target="_blank" rel="noopener">' . esc_html( $label ? $label : get_the_title( $file ) ) . '</a></li>';
+			}
+		}
+		if ( $files ) {
+			$sections[] = '<div class="zpvp-info__item"><h4>' . esc_html__( 'Documents', 'zp-vendor-portal' ) . '</h4><ul>' . implode( '', $files ) . '</ul></div>';
+		}
+		$this->info[ $id ] = $sections ? '<div class="zpvp-info__grid">' . implode( '', $sections ) . '</div>' : '';
+		return $this->info[ $id ];
+	}
+
+	/** One popup per conference whose card offers "Conference info". */
+	private function info_dialogs(): void {
+		$ids = array_keys( array_filter( $this->info ) );
+		if ( ! $ids ) {
+			return;
+		}
+		foreach ( $ids as $id ) {
+			$venue = implode( ', ', array_filter( array( (string) get_post_meta( $id, 'venue', true ), (string) get_post_meta( $id, 'city', true ) ) ) );
+			$when  = implode( '. ', array_filter( array( Conferences::date_range( $id ), $venue ) ) );
+			?>
+			<dialog class="zpvp-dialog" id="zpvp-info-<?php echo (int) $id; ?>" aria-labelledby="zpvp-info-<?php echo (int) $id; ?>-title">
+				<header class="zpvp-dialog__head">
+					<div>
+						<h2 id="zpvp-info-<?php echo (int) $id; ?>-title"><?php echo esc_html( get_the_title( $id ) ); ?></h2>
+						<?php if ( $when ) : ?><p><?php echo esc_html( $when ); ?></p><?php endif; ?>
+					</div>
+					<button type="button" class="zpvp-dialog__close" data-zpvp-close aria-label="<?php esc_attr_e( 'Close', 'zp-vendor-portal' ); ?>">&times;</button>
+				</header>
+				<div class="zpvp-dialog__body"><?php echo $this->info[ $id ]; // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in info_html(). ?></div>
+			</dialog>
+			<?php
+		}
+		?>
+		<script>
+		( function () {
+			document.addEventListener( 'click', function ( e ) {
+				var open = e.target.closest( '[data-zpvp-dialog]' );
+				if ( open ) {
+					var d = document.getElementById( open.getAttribute( 'data-zpvp-dialog' ) );
+					if ( d && d.showModal ) { d.showModal(); }
+					return;
+				}
+				var dlg = e.target.closest( '.zpvp-dialog' );
+				// Close button, or a click on the backdrop (the dialog element itself).
+				if ( dlg && ( e.target.closest( '[data-zpvp-close]' ) || e.target === dlg ) ) { dlg.close(); }
+			} );
+		}() );
+		</script>
+		<?php
 	}
 
 	private function previous( array $regs ): void {

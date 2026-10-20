@@ -33,6 +33,11 @@ final class Companies {
 		add_action( 'zpvp_registration_created', array( $this, 'stamp_registration' ), 5, 1 );
 		if ( is_admin() ) {
 			add_action( 'admin_menu', array( $this, 'menu' ), 25 );
+			add_filter( 'redirect_post_location', array( $this, 'company_saved_location' ), 20, 2 );
+			add_action( 'admin_footer', array( $this, 'merge_form' ) );
+			add_action( 'admin_enqueue_scripts', array( $this, 'contact_assets' ) );
+			add_action( 'wp_ajax_zpvp_find_vendor', array( $this, 'find_vendor' ) );
+			add_action( 'wp_ajax_zpvp_save_contact', array( $this, 'save_contact' ) );
 			add_filter( 'parent_file', array( $this, 'categories_parent' ) );
 			add_action( 'add_meta_boxes_' . self::POST_TYPE, array( $this, 'meta_boxes' ) );
 			add_action( 'save_post_' . self::POST_TYPE, array( $this, 'save' ), 10, 2 );
@@ -411,6 +416,50 @@ final class Companies {
 		add_meta_box( 'zpvp-merge', 'Merge', array( $this, 'merge_box' ), self::POST_TYPE, 'side', 'low' );
 	}
 
+
+	public function contact_assets(): void {
+		$screen = get_current_screen();
+		if ( ! $screen || 'post' !== $screen->base || self::POST_TYPE !== $screen->post_type || ! current_user_can( Roles::CAP_MANAGE ) ) { return; }
+		wp_enqueue_style( 'zpvp-contact-search', ZPVP_URL . 'assets/css/contact-search.css', array(), (string) filemtime( ZPVP_PATH . 'assets/css/contact-search.css' ) );
+		wp_enqueue_script( 'zpvp-contact-search', ZPVP_URL . 'assets/js/contact-search.js', array(), (string) filemtime( ZPVP_PATH . 'assets/js/contact-search.js' ), true );
+		wp_localize_script( 'zpvp-contact-search', 'ZPVP_CONTACT_SEARCH', array( 'url' => admin_url( 'admin-ajax.php' ), 'nonce' => wp_create_nonce( 'zpvp_find_vendor' ), 'saveNonce' => wp_create_nonce( 'zpvp_save_contact' ) ) );
+	}
+
+	public function find_vendor(): void {
+		if ( ! current_user_can( Roles::CAP_MANAGE ) ) { wp_send_json_error( array( 'message' => 'Access denied.' ), 403 ); }
+		check_ajax_referer( 'zpvp_find_vendor', 'nonce' );
+		$term = isset( $_GET['term'] ) && is_string( $_GET['term'] ) ? sanitize_text_field( wp_unslash( $_GET['term'] ) ) : '';
+		$company = absint( $_GET['company'] ?? 0 );
+		if ( strlen( $term ) < 2 || strlen( $term ) > 100 ) { wp_send_json_success( array() ); }
+		$query = new \WP_User_Query( array( 'role' => Roles::VENDOR, 'search' => '*' . $term . '*', 'search_columns' => array( 'display_name', 'user_email', 'user_login' ), 'exclude' => array_map( static fn( $u ) => (int) $u->ID, self::contacts( $company ) ), 'number' => 10, 'count_total' => false, 'orderby' => 'display_name', 'order' => 'ASC' ) );
+		$rows = array();
+		foreach ( $query->get_results() as $user ) {
+			$cid = (int) get_user_meta( $user->ID, self::META, true );
+			$rows[] = array( 'name' => $user->display_name, 'email' => $user->user_email, 'company' => $cid ? get_the_title( $cid ) : '' );
+		}
+		wp_send_json_success( $rows );
+	}
+
+
+	/** Save a selected contact without submitting the company editor. */
+	public function save_contact(): void {
+		if ( ! current_user_can( Roles::CAP_MANAGE ) ) { wp_send_json_error( array( 'message' => 'Access denied.' ), 403 ); }
+		check_ajax_referer( 'zpvp_save_contact', 'nonce' );
+		$company = absint( $_POST['company'] ?? 0 );
+		$email = isset( $_POST['email'] ) && is_string( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
+		if ( self::POST_TYPE !== get_post_type( $company ) || 'trash' === get_post_status( $company ) || ! current_user_can( 'edit_post', $company ) ) { wp_send_json_error( array( 'message' => 'This company cannot be edited.' ), 403 ); }
+		$user = $email ? get_user_by( 'email', $email ) : false;
+		if ( ! $user || ! Roles::is_vendor( $user ) ) { wp_send_json_error( array( 'message' => 'Select an existing vendor account.' ), 400 ); }
+		self::add_contact( $company, (int) $user->ID );
+		global $wpdb;
+		$unmoved = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM ' . Registrations::table() . ' WHERE user_id = %d AND company_id <> %d', $user->ID, $company ) );
+		if ( (int) get_user_meta( $user->ID, self::META, true ) !== $company || $unmoved ) { wp_send_json_error( array( 'message' => 'The contact could not be fully saved. Please refresh and try again.' ), 500 ); }
+		$post = get_post( $company );
+		ob_start(); $this->contacts_box( $post ); $contacts = ob_get_clean();
+		ob_start(); $this->registrations_box( $post ); $registrations = ob_get_clean();
+		wp_send_json_success( array( 'message' => $user->display_name . ' was added as a contact.', 'contacts' => $contacts, 'registrations' => $registrations ) );
+	}
+
 	public function contacts_box( $post ): void {
 		$contacts = self::contacts( (int) $post->ID );
 		$primary  = self::primary_contact( (int) $post->ID );
@@ -431,9 +480,16 @@ final class Companies {
 			<?php endforeach; ?>
 			</tbody>
 		</table>
-		<p><label for="zpvp-add-contact"><strong>Add a contact</strong></label><br>
-		<input id="zpvp-add-contact" type="email" name="zpvp_add_contact" class="regular-text" placeholder="colleague@company.com">
-		<span class="description">The email of a vendor account. Their registrations move to this company. If they don't have an account yet, ask them to create one at the vendor registration page first.</span></p>
+		<div class="zpvp-contact-picker" data-company="<?php echo (int) $post->ID; ?>">
+			<label for="zpvp-add-contact"><strong>Add a contact</strong></label>
+			<p class="description" id="zpvp-contact-help">Search existing vendors by name or email, then select a contact.</p>
+			<div class="zpvp-contact-searchbox"><span class="dashicons dashicons-search" aria-hidden="true"></span><input id="zpvp-add-contact" type="text" placeholder="Search vendors…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="zpvp-contact-results" aria-describedby="zpvp-contact-help"><button type="button" class="zpvp-contact-clear" aria-label="Clear selected vendor" hidden>×</button></div>
+			<input type="hidden" name="zpvp_add_contact" id="zpvp-contact-email" value="">
+			<ul id="zpvp-contact-results" role="listbox" aria-label="Matching vendors" hidden></ul>
+			<p><button type="button" class="button button-primary zpvp-contact-save" disabled>Save contact</button></p>
+			<p class="zpvp-contact-status" role="status" aria-live="polite">Type at least 2 characters to search.</p>
+			<p class="description">Save contact adds the selected vendor to this company and moves their registrations here. New vendors must create an account first.</p>
+		</div>
 		<?php
 	}
 
@@ -456,21 +512,39 @@ final class Companies {
 		echo '</tbody></table>';
 	}
 
-	public function merge_box( $post ): void {
+
+	public function company_saved_location( $location, $post_id ): string {
+		return self::POST_TYPE === get_post_type( (int) $post_id )
+			? add_query_arg( array( 'post' => (int) $post_id, 'action' => 'edit', 'message' => 1 ), admin_url( 'post.php' ) )
+			: (string) $location;
+	}
+
+	/** Keep the merge form outside WordPress's company edit form. */
+	public function merge_form(): void {
+		global $post;
+		$screen = get_current_screen();
+		if ( ! $screen || 'post' !== $screen->base || self::POST_TYPE !== $screen->post_type || ! $post instanceof \WP_Post || ! current_user_can( Roles::CAP_MANAGE ) ) { return; }
 		?>
-		<p>Duplicate of another company? Move this company's contacts, registrations and categories into it.</p>
-		<form method="get" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('Merge this company into the one chosen? This cannot be undone.');">
+		<form id="zpvp-company-merge-form" method="get" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('Merge this company into the one chosen? This cannot be undone.');">
 			<input type="hidden" name="action" value="zpvp_merge_companies">
 			<input type="hidden" name="from" value="<?php echo (int) $post->ID; ?>">
 			<input type="hidden" name="_wpnonce" value="<?php echo esc_attr( wp_create_nonce( 'zpvp_merge_' . (int) $post->ID ) ); ?>">
-			<select name="into" style="max-width:100%">
+		</form>
+		<?php
+	}
+
+	public function merge_box( $post ): void {
+		?>
+		<p>Duplicate of another company? Move this company's contacts, registrations and categories into it.</p>
+		<div class="zpvp-company-merge">
+			<select name="into" form="zpvp-company-merge-form" style="max-width:100%">
 				<option value="">Choose a company…</option>
 				<?php foreach ( get_posts( array( 'post_type' => self::POST_TYPE, 'post_status' => 'publish', 'posts_per_page' => -1, 'orderby' => 'title', 'order' => 'ASC', 'exclude' => array( (int) $post->ID ) ) ) as $c ) : ?>
 					<option value="<?php echo (int) $c->ID; ?>"><?php echo esc_html( $c->post_title ); ?></option>
 				<?php endforeach; ?>
 			</select>
-			<p><button class="button">Merge</button></p>
-		</form>
+			<p><button type="submit" form="zpvp-company-merge-form" class="button">Merge</button></p>
+		</div>
 		<?php
 	}
 

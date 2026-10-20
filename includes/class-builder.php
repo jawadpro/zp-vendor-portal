@@ -124,9 +124,10 @@ final class Builder {
 		wp_enqueue_media();
 		wp_enqueue_style( 'zpvp-portal', ZPVP_URL . 'assets/css/portal.css', array(), ZPVP_VERSION );
 		wp_enqueue_style( 'zpvp-flatpickr', ZPVP_URL . 'assets/vendor/flatpickr/flatpickr.min.css', array(), '4.6.13' );
+		wp_enqueue_style( 'zpvp-loading', ZPVP_URL . 'assets/css/loading.css', array(), (string) filemtime( ZPVP_PATH . 'assets/css/loading.css' ) );
 		wp_enqueue_style( 'zpvp-builder', ZPVP_URL . 'assets/css/builder.css', array( 'zpvp-portal', 'zpvp-flatpickr' ), ZPVP_VERSION );
 		wp_enqueue_script( 'zpvp-flatpickr', ZPVP_URL . 'assets/vendor/flatpickr/flatpickr.min.js', array(), '4.6.13', true );
-		wp_enqueue_script( 'zpvp-builder', ZPVP_URL . 'assets/js/builder.js', array( 'zpvp-flatpickr' ), ZPVP_VERSION, true );
+		wp_enqueue_script( 'zpvp-builder', ZPVP_URL . 'assets/js/builder.js', array( 'zpvp-flatpickr' ), (string) filemtime( ZPVP_PATH . 'assets/js/builder.js' ), true );
 		wp_localize_script(
 			'zpvp-builder',
 			'ZPVP_BUILDER',
@@ -141,7 +142,7 @@ final class Builder {
 	}
 
 	public function render(): void {
-		echo '<div class="wrap zpvp-b" id="zpvp-builder"><h1 class="zpvp-b__title">Conference Builder</h1><p class="zpvp-b__loading">Loading…</p>'
+		echo '<div class="wrap zpvp-b" id="zpvp-builder"><h1 class="zpvp-b__title">Conference Builder</h1><p class="zpvp-loading" role="status">Loading Conference Builder…</p>'
 			. '<noscript><p>The builder needs JavaScript. You can still edit conferences on the <a href="' . esc_url( admin_url( 'edit.php?post_type=' . Conferences::EDITION ) ) . '">Conferences</a> screen.</p></noscript></div>';
 	}
 
@@ -274,7 +275,7 @@ final class Builder {
 			return $id;
 		}
 		$values = self::clean( (array) $r->get_param( 'values' ), self::load( $id ) );
-		if ( ! $values['series'] ) {
+		if ( ! $values['series'] || Conferences::SERIES !== get_post_type( (int) $values['series'] ) ) {
 			return new \WP_Error( 'zpvp_series', 'Choose the conference series first.', array( 'status' => 400 ) );
 		}
 		if ( $values['year'] < 2015 || $values['year'] > 2100 ) {
@@ -284,9 +285,17 @@ final class Builder {
 		if ( $taken ) {
 			return new \WP_Error( 'zpvp_dup', sprintf( '%s already exists. Open that conference instead.', self::plain( $taken ) ), array( 'status' => 409 ) );
 		}
+		$status = sanitize_key( (string) $r->get_param( 'status' ) );
+		// Publishing needs a clean check list, enforced here as well as by the disabled Publish button.
+		// Saves to a conference that is already live stay allowed, so staff can fix one problem at a time.
+		if ( 'publish' === $status && 'publish' !== get_post_status( $id ) ) {
+			$evaluation = self::evaluate( $id, $values );
+			if ( ! empty( $evaluation['counts']['error'] ) ) {
+				return new \WP_Error( 'zpvp_publish_blocked', 'Fix the items marked Needs attention before publishing.', array( 'status' => 400, 'checks' => $evaluation['checks'] ) );
+			}
+		}
 		self::persist( $id, $values );
 
-		$status = sanitize_key( (string) $r->get_param( 'status' ) );
 		if ( in_array( $status, array( 'publish', 'draft' ), true ) && get_post_status( $id ) !== $status ) {
 			wp_update_post( array( 'ID' => $id, 'post_status' => $status ) );
 		}
@@ -959,7 +968,7 @@ final class Builder {
 
 		$when = implode( ', ', array_filter( array( '' !== $range ? $range : (string) $v['year'], $v['city'] ) ) );
 		$pass = '<div class="zpvp-passes"><article class="zpvp-pass">'
-			. '<header class="zpvp-pass__top"><span class="zpvp-pass__hole" aria-hidden="true"></span><h3 class="zpvp-pass__event">' . esc_html( $title ) . '</h3>' . ( $when ? '<p class="zpvp-pass__when">' . esc_html( $when ) . '</p>' : '' ) . '</header>'
+			. '<header class="zpvp-pass__top"><span class="zpvp-pass__hole" aria-hidden="true"></span><h3 class="zpvp-pass__event">' . esc_html( $title ) . '</h3>' . ( $when ? '<p class="zpvp-pass__when">' . esc_html( $when ) . '</p>' : '' ) . '{{info_link}}</header>'
 			. '<div class="zpvp-pass__body"><div class="zpvp-pass__booth"><span>Booth</span><em>Number to be assigned</em></div>'
 			. '<dl class="zpvp-pass__facts"><div><dt>Booths</dt><dd>1</dd></div><div><dt>Payment</dt><dd><span class="zpvp-pill zpvp-pill--awaiting">Awaiting payment</span></dd></div><div><dt>Booth staff</dt><dd>2 people</dd></div></dl></div>'
 			. '<footer class="zpvp-pass__actions"><span class="zpvp-btn zpvp-btn--primary">Manage booth staff</span><span class="zpvp-btn">Invoice</span></footer>'
@@ -985,9 +994,14 @@ final class Builder {
 		if ( $files ) {
 			$sections[] = '<div class="zpvp-info__item"><h4>Documents</h4><ul>' . implode( '', $files ) . '</ul></div>';
 		}
-		$info = $sections
-			? '<details class="zpvp-info" open><summary>' . esc_html( $title ) . '</summary><div class="zpvp-info__grid">' . implode( '', $sections ) . '</div></details>'
-			: '<p class="zpvp-empty">Nothing here yet. Add hotel, decorator or electricity information or a floor plan, and registered vendors see it on My Conferences.</p>';
+		$venue = implode( ', ', array_filter( array( (string) $v['venue'], (string) $v['city'] ) ) );
+		$sub   = implode( '. ', array_filter( array( $range, $venue ) ) );
+		$info  = $sections
+			? '<div class="zpvp-dialog is-static"><header class="zpvp-dialog__head"><div><h2>' . esc_html( $title ) . '</h2>' . ( $sub ? '<p>' . esc_html( $sub ) . '</p>' : '' ) . '</div><span class="zpvp-dialog__close" aria-hidden="true">&times;</span></header>'
+				. '<div class="zpvp-dialog__body"><div class="zpvp-info__grid">' . implode( '', $sections ) . '</div></div></div>'
+				. '<p class="zpvp-empty">Registered vendors open this from the Conference info link on their conference card.</p>'
+			: '<p class="zpvp-empty">Nothing here yet. Add hotel, decorator or electricity information or a floor plan, and registered vendors get a Conference info link on their conference card.</p>';
+		$pass  = str_replace( '{{info_link}}', $sections ? '<span class="zpvp-pass__info">Conference info</span>' : '', $pass );
 
 		return array(
 			'open'    => $open,

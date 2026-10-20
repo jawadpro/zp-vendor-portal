@@ -533,8 +533,10 @@ final class Badge_Orders {
 
 	/**
 	 * Link an order to a registration and apply it: the people become booth
-	 * personnel and paid or replacement badges are added to the registration's
-	 * purchased badges. Applying happens once; relinking moves nothing already applied.
+	 * personnel straight away, and the paid or replacement badges are added to
+	 * the registration's purchased badges once the order is paid (or free).
+	 * `applied` is 0 (nothing yet), 2 (people added, waiting for payment) or 1
+	 * (done). Relinking moves nothing already applied.
 	 */
 	public static function link( int $order_id, int $registration_id, string $note = '' ): bool {
 		global $wpdb;
@@ -548,37 +550,79 @@ final class Badge_Orders {
 			array( 'registration_id' => $registration_id, 'status' => 'linked', 'note' => mb_substr( $note, 0, 255 ), 'updated_at' => current_time( 'mysql' ) ),
 			array( 'id' => $order_id )
 		);
-		if ( 'failed' !== $order->payment_status ) {
+		if ( ! in_array( $order->payment_status, array( 'failed', 'refunded' ), true ) ) {
 			self::apply( self::get( $order_id ), $reg );
 		}
 		return true;
 	}
 
+	private static function is_paid( object $order ): bool {
+		return in_array( $order->payment_status, array( 'paid', 'no_charge' ), true );
+	}
+
 	private static function apply( object $order, object $reg ): void {
 		global $wpdb;
-		$source = in_array( $order->kind, array( 'onsite', 'onsite_change' ), true ) ? 'onsite' : 'badge_form';
-		$people = json_decode( (string) $order->people, true );
-		$have   = array_map( static fn( $a ) => strtolower( trim( $a->name ) ), Attendees::for_registration( (int) $reg->id ) );
-
-		// Purchased (and free replacement) badges first, so the new people aren't flagged as unpaid.
-		$covered = (int) $order->additional_qty + (int) $order->replacement_qty;
-		if ( $covered > 0 && (int) $reg->included_badges > 0 ) {
-			Registrations::update( (int) $reg->id, array( 'paid_badges' => (int) $reg->paid_badges + $covered ) );
+		$table = self::table();
+		if ( 1 === (int) $order->applied ) {
+			return;
 		}
-		foreach ( is_array( $people ) ? $people : array() as $p ) {
-			$name = (string) ( $p['name'] ?? '' );
-			if ( '' === $name || in_array( strtolower( trim( $name ) ), $have, true ) ) {
-				continue; // Already listed.
+		$covered = (int) $order->additional_qty + (int) $order->replacement_qty;
+
+		// Credit purchased (and free replacement) badges first, so the new people aren't flagged as unpaid.
+		// The conditional UPDATE claims the order, so two payment callbacks at once can't credit it twice.
+		$credited = false;
+		if ( self::is_paid( $order ) && $wpdb->query( $wpdb->prepare( "UPDATE {$table} SET applied = 1, updated_at = %s WHERE id = %d AND applied <> 1", current_time( 'mysql' ), (int) $order->id ) ) ) {
+			$credited = true;
+			if ( $covered > 0 && (int) $reg->included_badges > 0 ) {
+				$wpdb->query( $wpdb->prepare( 'UPDATE ' . Registrations::table() . ' SET paid_badges = paid_badges + %d, updated_at = %s WHERE id = %d', $covered, current_time( 'mysql' ), (int) $reg->id ) );
 			}
-			Attendees::add( (int) $reg->id, array( 'name' => $name, 'title' => (string) ( $p['title'] ?? '' ) ), $source );
-			$have[] = strtolower( trim( $name ) );
+		}
+
+		$people = json_decode( (string) $order->people, true );
+		$people = is_array( $people ) ? $people : array();
+		if ( 0 === (int) $order->applied ) {
+			$source = in_array( $order->kind, array( 'onsite', 'onsite_change' ), true ) ? 'onsite' : 'badge_form';
+			$have   = array_map( static fn( $a ) => strtolower( trim( $a->name ) ), Attendees::for_registration( (int) $reg->id ) );
+			foreach ( $people as $p ) {
+				$name = (string) ( $p['name'] ?? '' );
+				if ( '' === $name || in_array( strtolower( trim( $name ) ), $have, true ) ) {
+					continue; // Already listed.
+				}
+				Attendees::add( (int) $reg->id, array( 'name' => $name, 'title' => (string) ( $p['title'] ?? '' ) ), $source );
+				$have[] = strtolower( trim( $name ) );
+			}
+			if ( ! $credited ) {
+				$wpdb->update( $table, array( 'applied' => 2, 'updated_at' => current_time( 'mysql' ) ), array( 'id' => (int) $order->id, 'applied' => 0 ) );
+			}
 		}
 		Badges::sync_registration( (int) $reg->id );
 
-		$note = trim( (string) $reg->notes . "\n" . sprintf( '%s %s (entry %d): %d additional, %d replacement badge(s), %d people.', self::KINDS[ $order->kind ] ?? 'Badge order', mysql2date( 'M j, Y', $order->created_at ), (int) $order->gf_entry_id, (int) $order->additional_qty, (int) $order->replacement_qty, is_array( $people ) ? count( $people ) : 0 ) );
-		Registrations::update( (int) $reg->id, array( 'notes' => $note ) );
-		$wpdb->update( self::table(), array( 'applied' => 1, 'updated_at' => current_time( 'mysql' ) ), array( 'id' => (int) $order->id ) );
-		do_action( 'zpvp_badge_order_applied', (int) $order->id, (int) $reg->id );
+		$reg  = Registrations::get( (int) $reg->id );
+		$what = sprintf( '%s %s (entry %d): %d additional, %d replacement badge(s), %d people.', self::KINDS[ $order->kind ] ?? 'Badge order', mysql2date( 'M j, Y', $order->created_at ), (int) $order->gf_entry_id, (int) $order->additional_qty, (int) $order->replacement_qty, count( $people ) );
+		if ( ! $credited ) {
+			$what .= ' Waiting for payment before the badges are credited.';
+		} elseif ( 2 === (int) $order->applied ) {
+			$what = sprintf( 'Badge order (entry %d) paid: %d badge(s) credited.', (int) $order->gf_entry_id, $covered );
+		}
+		Registrations::update( (int) $reg->id, array( 'notes' => trim( (string) $reg->notes . "\n" . $what ) ) );
+		if ( $credited ) {
+			do_action( 'zpvp_badge_order_applied', (int) $order->id, (int) $reg->id );
+		}
+	}
+
+	/** Staff confirm payment for an order paid outside the form (check, or a form with no card feed). */
+	public static function mark_paid( int $order_id ): bool {
+		global $wpdb;
+		$order = self::get( $order_id );
+		if ( ! $order || self::is_paid( $order ) ) {
+			return false;
+		}
+		$wpdb->update( self::table(), array( 'payment_status' => 'paid', 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $order_id ) );
+		$reg = 'linked' === $order->status && $order->registration_id ? Registrations::get( (int) $order->registration_id ) : null;
+		if ( $reg ) {
+			self::apply( self::get( $order_id ), $reg );
+		}
+		return true;
 	}
 
 	public function on_payment( $entry ): void {
@@ -588,7 +632,7 @@ final class Badge_Orders {
 			return;
 		}
 		$wpdb->update( self::table(), array( 'payment_status' => 'paid', 'updated_at' => current_time( 'mysql' ) ), array( 'id' => (int) $order->id ) );
-		if ( 'linked' === $order->status && ! (int) $order->applied && $order->registration_id ) {
+		if ( 'linked' === $order->status && 1 !== (int) $order->applied && $order->registration_id ) {
 			$reg = Registrations::get( (int) $order->registration_id );
 			if ( $reg ) {
 				self::apply( self::get( (int) $order->id ), $reg );
@@ -675,7 +719,15 @@ final class Badge_Orders {
 						<td>
 							<?php if ( 'linked' === $o->status && $o->registration_id && ( $r = Registrations::get( (int) $o->registration_id ) ) ) : ?>
 								<a href="<?php echo esc_url( admin_url( 'admin.php?page=zpvp-registration&id=' . (int) $r->id ) ); ?>"><?php echo esc_html( $r->company_name . ' – ' . Registrations::conference_label( $r ) ); ?></a>
-								<?php if ( ! (int) $o->applied ) : ?><br><em>Waiting for payment</em><?php endif; ?>
+								<?php if ( 1 !== (int) $o->applied ) : ?>
+									<br><em>Waiting for payment: people added, badges not credited yet.</em>
+									<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:4px">
+										<input type="hidden" name="action" value="zpvp_badge_order">
+										<input type="hidden" name="order" value="<?php echo (int) $o->id; ?>">
+										<?php wp_nonce_field( 'zpvp_badge_order_' . (int) $o->id ); ?>
+										<button class="button" name="do" value="paid">Mark paid</button>
+									</form>
+								<?php endif; ?>
 							<?php else : ?>
 								<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 									<input type="hidden" name="action" value="zpvp_badge_order">
@@ -741,9 +793,12 @@ final class Badge_Orders {
 		check_admin_referer( 'zpvp_badge_order_' . $id );
 		global $wpdb;
 		$msg = '';
-		if ( 'ignore' === sanitize_key( $_POST['do'] ?? '' ) ) {
+		$do = sanitize_key( $_POST['do'] ?? '' );
+		if ( 'ignore' === $do ) {
 			$wpdb->update( self::table(), array( 'status' => 'ignored', 'updated_at' => current_time( 'mysql' ) ), array( 'id' => $id ) );
 			$msg = 'Badge order ignored.';
+		} elseif ( 'paid' === $do ) {
+			$msg = self::mark_paid( $id ) ? 'Badge order marked paid. Its badges were added to the registration.' : 'That badge order was already paid.';
 		} else {
 			$rid = absint( $_POST['registration'] ?? 0 );
 			$msg = ( $rid && self::link( $id, $rid, sprintf( 'Linked by %s.', wp_get_current_user()->display_name ) ) ) ? 'Badge order linked. Its people were added to the booth staff and badge queue.' : 'Choose a registration to link the order to.';

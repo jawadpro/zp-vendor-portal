@@ -339,6 +339,16 @@ up: the next deploy overwrites the folder (`--delete`).
   email matches (the annual form is left out). Entries are placed on the series' conference that started soonest after
   the entry date. Nothing is emailed. Entries without a matching vendor are listed for manual linking.
 
+## Review of local changes (v0.24.0)
+
+Changes made directly on the local site (faster dashboard queries, stricter registration and booth staff validation, builder conference chooser and publish check, loading indicators, read-only booth badges in the registrations table, live vendor search and inline Save contact on company screens, merge form moved out of the post form) were reviewed and kept, with these adjustments:
+
+- Badge orders: the people on an order become booth staff as soon as it is linked; the paid badges are credited only when the order is paid or free. `applied` is 0 (nothing yet), 2 (people added, waiting for payment) or 1 (done). The credit is claimed with a conditional UPDATE and added with `paid_badges = paid_badges + n`, so repeated or simultaneous payment callbacks can't credit twice.
+- Badge orders screen: **Mark paid** for orders paid by check or through a form with no card feed (the Name Badge Order Form has none).
+- Booth staff page: an order waiting for payment is mentioned and the Pay button is hidden when it already covers what is owed.
+- Conference Builder: the server blocks publishing a draft with failing checks; saving a conference that is already published stays allowed so staff can fix one item at a time.
+- Contact search and Save contact use separate nonces.
+
 ## Builder is the conference editor (v0.23.0)
 
 - Opening or adding a conference (`post.php?action=edit`, `post-new.php?post_type=zp_conf_edition`) goes to the

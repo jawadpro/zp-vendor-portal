@@ -74,7 +74,7 @@ final class Rest {
 			'item'           => (string) ( $r->item ?? '' ),
 			'booths'         => (int) $r->booths,
 			'booth_number'   => (string) $r->booth_number,
-			'people'         => Attendees::count( (int) $r->id ),
+			'people'         => isset( $r->attendee_count ) ? (int) $r->attendee_count : Attendees::count( (int) $r->id ),
 			'amount'         => (float) $r->amount,
 			'payment_status' => (string) $r->payment_status,
 			'payment_label'  => Registrations::payment_label( $r->payment_status ),
@@ -83,7 +83,7 @@ final class Rest {
 			'created'        => mysql2date( 'M j, Y', $r->created_at ),
 			'has_account'    => (bool) $r->user_id,
 			'company_id'     => (int) ( $r->company_id ?? 0 ),
-			'categories'     => Companies::category_names( (int) ( $r->company_id ?? 0 ) ),
+			'categories'     => $r->category_names ?? Companies::category_names( (int) ( $r->company_id ?? 0 ) ),
 		);
 	}
 
@@ -118,16 +118,22 @@ final class Rest {
 	public function summary( \WP_REST_Request $req ) {
 		global $wpdb;
 		$f    = self::filters( $req );
-		$rows = Admin_Reports::summary( array_merge( $f, array( 'payment' => '', 'search' => '' ) ) );
-		$t    = array( 'registrations' => 0, 'booths' => 0, 'paid' => 0.0, 'outstanding' => 0.0 );
-		foreach ( $rows as $r ) {
-			$t['registrations'] += (int) $r->registrations;
-			$t['booths']        += (int) $r->booths;
-			$t['paid']          += (float) $r->paid;
-			$t['outstanding']   += (float) $r->outstanding;
-		}
+		// Dashboard totals do not need the report's attendee aggregation or grouping.
+		[ $w, $args ] = Registrations::filter_sql( array_merge( $f, array( 'payment' => '', 'search' => '' ) ) );
+		$sql = "SELECT COUNT(*) AS registrations,
+			COALESCE(SUM(CASE WHEN payment_status NOT IN ('failed','refunded') THEN booths ELSE 0 END),0) AS booths,
+			COALESCE(SUM(CASE WHEN payment_status IN ('paid','no_charge') THEN amount ELSE 0 END),0) AS paid,
+			COALESCE(SUM(CASE WHEN payment_status IN ('awaiting','pending') THEN amount ELSE 0 END),0) AS outstanding
+			FROM " . Registrations::table() . " {$w}";
+		$t = (array) ( $args ? $wpdb->get_row( $wpdb->prepare( $sql, $args ) ) : $wpdb->get_row( $sql ) );
+		$t = array_merge( array( 'registrations' => 0, 'booths' => 0, 'paid' => 0, 'outstanding' => 0 ), $t );
+		$t['registrations'] = (int) $t['registrations'];
+		$t['booths'] = (int) $t['booths'];
+		$t['paid'] = (float) $t['paid'];
+		$t['outstanding'] = (float) $t['outstanding'];
 		$bt    = Badges::table();
-		$where = $f['edition'] ? $wpdb->prepare( ' AND edition_id = %d', $f['edition'] ) : '';
+		$where = $f['edition'] ? $wpdb->prepare( ' WHERE edition_id = %d', $f['edition'] ) : '';
+		$badges = $wpdb->get_row( "SELECT COALESCE(SUM(status = 'queued'),0) AS queued, COALESCE(SUM(status <> 'void' AND needs_payment = 1),0) AS owed FROM {$bt}{$where}" );
 		return array(
 			'registrations' => $t['registrations'],
 			'booths'        => $t['booths'],
@@ -135,8 +141,8 @@ final class Rest {
 			'status'        => $f['edition'] ? Conferences::status_label( Conferences::status( $f['edition'] ) ) : '',
 			'paid'          => $t['paid'],
 			'outstanding'   => $t['outstanding'],
-			'badges_queued' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$bt} WHERE status = 'queued'{$where}" ), // phpcs:ignore -- $where prepared above.
-			'badges_owed'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$bt} WHERE status <> 'void' AND needs_payment = 1{$where}" ), // phpcs:ignore
+			'badges_queued' => (int) ( $badges->queued ?? 0 ),
+			'badges_owed'   => (int) ( $badges->owed ?? 0 ),
 		);
 	}
 
@@ -148,13 +154,24 @@ final class Rest {
 		[ $where, $args ] = Registrations::filter_sql( $f );
 		$table = Registrations::table();
 		$total = (int) ( $args ? $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} {$where}", $args ) ) : $wpdb->get_var( "SELECT COUNT(*) FROM {$table} {$where}" ) );
-		$rows  = (array) $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$table} {$where} ORDER BY created_at DESC LIMIT %d OFFSET %d", array_merge( $args, array( $per_page, ( $page - 1 ) * $per_page ) ) ) );
+		$rows  = (array) $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$table} {$where} ORDER BY created_at DESC, id DESC LIMIT %d OFFSET %d", array_merge( $args, array( $per_page, ( $page - 1 ) * $per_page ) ) ) );
 
-		$counts = array();
-		foreach ( array( '', 'outstanding', 'paid', 'failed' ) as $p ) {
-			[ $w, $a ] = Registrations::filter_sql( array_merge( $f, array( 'payment' => $p, 'search' => '' ) ) );
-			$counts[ '' === $p ? 'all' : $p ] = (int) ( $a ? $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} {$w}", $a ) ) : $wpdb->get_var( "SELECT COUNT(*) FROM {$table} {$w}" ) );
-		}
+		// Chip counts deliberately ignore search and the selected payment chip.
+		[ $w, $a ] = Registrations::filter_sql( array_merge( $f, array( 'payment' => '', 'search' => '' ) ) );
+		$sql = "SELECT COUNT(*) AS all_count,
+			COALESCE(SUM(CASE WHEN payment_status IN ('awaiting','pending') THEN 1 ELSE 0 END), 0) AS outstanding,
+			COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN 1 ELSE 0 END), 0) AS paid,
+			COALESCE(SUM(CASE WHEN payment_status = 'failed' THEN 1 ELSE 0 END), 0) AS failed
+			FROM {$table} {$w}";
+		$totals = $a ? $wpdb->get_row( $wpdb->prepare( $sql, $a ) ) : $wpdb->get_row( $sql );
+		$counts = array(
+			'all'         => (int) ( $totals->all_count ?? 0 ),
+			'outstanding' => (int) ( $totals->outstanding ?? 0 ),
+			'paid'        => (int) ( $totals->paid ?? 0 ),
+			'failed'      => (int) ( $totals->failed ?? 0 ),
+		);
+
+		self::prime_rows( $rows );
 
 		return array(
 			'rows'   => array_map( array( __CLASS__, 'row' ), $rows ),
@@ -170,27 +187,74 @@ final class Rest {
 		return $r ? self::detail( $r ) : self::not_found();
 	}
 
+	/** Load related data once for the current page instead of once per row. */
+	private static function prime_rows( array $rows ): void {
+		global $wpdb;
+		if ( ! $rows ) {
+			return;
+		}
+		$ids = array_map( 'intval', wp_list_pluck( $rows, 'id' ) );
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$attendees = $wpdb->get_results( $wpdb->prepare(
+			'SELECT registration_id, COUNT(*) AS people FROM ' . Attendees::table() . " WHERE status = 'active' AND registration_id IN ({$placeholders}) GROUP BY registration_id",
+			$ids
+		), OBJECT_K );
+
+		$company_ids = array_values( array_unique( array_filter( array_map( 'intval', wp_list_pluck( $rows, 'company_id' ) ) ) ) );
+		$categories = array();
+		if ( $company_ids ) {
+			$terms = wp_get_object_terms( $company_ids, Companies::TAXONOMY, array( 'fields' => 'all_with_object_id' ) );
+			foreach ( is_wp_error( $terms ) ? array() : $terms as $term ) {
+				$categories[ (int) $term->object_id ][] = html_entity_decode( $term->name, ENT_QUOTES );
+			}
+		}
+
+		$post_ids = array_values( array_unique( array_filter( array_map( 'intval', array_merge( wp_list_pluck( $rows, 'edition_id' ), wp_list_pluck( $rows, 'series_id' ) ) ) ) ) );
+		if ( $post_ids ) {
+			_prime_post_caches( $post_ids, false, false );
+		}
+		foreach ( $rows as $row ) {
+			$row->attendee_count = (int) ( $attendees[ (int) $row->id ]->people ?? 0 );
+			$row->category_names = $categories[ (int) $row->company_id ] ?? array();
+		}
+	}
+
 	public function update_registration( \WP_REST_Request $req ) {
 		$r = Registrations::get( (int) $req['id'] );
 		if ( ! $r ) {
 			return self::not_found();
 		}
-		$status = sanitize_key( (string) $req->get_param( 'payment_status' ) );
-		$status = isset( Registrations::PAYMENT_STATUSES[ $status ] ) ? $status : $r->payment_status;
-		$notes  = sanitize_textarea_field( (string) $req->get_param( 'notes' ) );
+		foreach ( array( 'payment_status', 'notes', 'booth_number', 'included_badges', 'paid_badges' ) as $field ) {
+			if ( $req->has_param( $field ) && ! is_scalar( $req->get_param( $field ) ) ) {
+				return new \WP_Error( 'zpvp_invalid_registration', 'Registration fields must be scalar values.', array( 'status' => 400 ) );
+			}
+		}
+		$status = $req->has_param( 'payment_status' ) ? sanitize_key( (string) $req->get_param( 'payment_status' ) ) : $r->payment_status;
+		if ( ! isset( Registrations::PAYMENT_STATUSES[ $status ] ) ) {
+			return new \WP_Error( 'zpvp_invalid_payment_status', 'Choose a valid payment status.', array( 'status' => 400 ) );
+		}
+		foreach ( array( 'included_badges', 'paid_badges' ) as $field ) {
+			if ( $req->has_param( $field ) && ( ! ctype_digit( (string) $req->get_param( $field ) ) || (int) $req->get_param( $field ) > 65535 ) ) {
+				return new \WP_Error( 'zpvp_invalid_badge_count', 'Badge counts must be whole numbers between 0 and 65535.', array( 'status' => 400 ) );
+			}
+		}
+		$notes = $req->has_param( 'notes' ) ? sanitize_textarea_field( (string) $req->get_param( 'notes' ) ) : (string) $r->notes;
 		if ( $status !== $r->payment_status ) {
 			$notes = trim( $notes . "\n" . sprintf( 'Payment status changed from %s to %s by %s on %s.', Registrations::payment_label( $r->payment_status ), Registrations::payment_label( $status ), wp_get_current_user()->display_name, current_time( 'mysql' ) ) );
 		}
-		Registrations::update(
+		$saved = Registrations::update(
 			(int) $r->id,
 			array(
-				'booth_number'    => sanitize_text_field( (string) $req->get_param( 'booth_number' ) ),
-				'included_badges' => absint( $req->get_param( 'included_badges' ) ),
-				'paid_badges'     => absint( $req->get_param( 'paid_badges' ) ),
+				'booth_number'    => $req->has_param( 'booth_number' ) ? sanitize_text_field( (string) $req->get_param( 'booth_number' ) ) : $r->booth_number,
+				'included_badges' => $req->has_param( 'included_badges' ) ? absint( $req->get_param( 'included_badges' ) ) : (int) $r->included_badges,
+				'paid_badges'     => $req->has_param( 'paid_badges' ) ? absint( $req->get_param( 'paid_badges' ) ) : (int) $r->paid_badges,
 				'payment_status'  => $status,
 				'notes'           => $notes,
 			)
 		);
+		if ( ! $saved ) {
+			return new \WP_Error( 'zpvp_save_failed', 'The registration could not be saved.', array( 'status' => 500 ) );
+		}
 		Badges::sync_registration( (int) $r->id );
 		return self::detail( Registrations::get( (int) $r->id ) );
 	}
@@ -202,7 +266,9 @@ final class Rest {
 		}
 		if ( 'paid' !== $r->payment_status ) {
 			$note = trim( (string) $r->notes . "\n" . sprintf( 'Marked paid by %s on %s.', wp_get_current_user()->display_name, current_time( 'mysql' ) ) );
-			Registrations::update( (int) $r->id, array( 'payment_status' => 'paid', 'notes' => $note ) );
+			if ( ! Registrations::update( (int) $r->id, array( 'payment_status' => 'paid', 'notes' => $note ) ) ) {
+				return new \WP_Error( 'zpvp_save_failed', 'The payment status could not be saved.', array( 'status' => 500 ) );
+			}
 		}
 		return self::row( Registrations::get( (int) $r->id ) );
 	}
@@ -212,7 +278,12 @@ final class Rest {
 		if ( ! $r ) {
 			return self::not_found();
 		}
-		Registrations::update( (int) $r->id, array( 'booth_number' => sanitize_text_field( (string) $req->get_param( 'booth_number' ) ) ) );
+		if ( ! $req->has_param( 'booth_number' ) || ! is_scalar( $req->get_param( 'booth_number' ) ) ) {
+			return new \WP_Error( 'zpvp_invalid_booth', 'Provide a booth number (or an empty string to clear it).', array( 'status' => 400 ) );
+		}
+		if ( ! Registrations::update( (int) $r->id, array( 'booth_number' => sanitize_text_field( (string) $req->get_param( 'booth_number' ) ) ) ) ) {
+			return new \WP_Error( 'zpvp_save_failed', 'The booth number could not be saved.', array( 'status' => 500 ) );
+		}
 		return self::row( Registrations::get( (int) $r->id ) );
 	}
 
@@ -225,7 +296,29 @@ final class Rest {
 		if ( ! $r ) {
 			return self::not_found();
 		}
-		$incoming = (array) $req->get_param( 'attendees' );
+		$incoming = $req->get_param( 'attendees' );
+		if ( ! is_array( $incoming ) || ! array_is_list( $incoming ) ) {
+			return new \WP_Error( 'zpvp_invalid_attendees', 'Provide an attendee list. No booth staff were changed.', array( 'status' => 400 ) );
+		}
+		$own = array_map( 'intval', wp_list_pluck( Attendees::for_registration( (int) $r->id ), 'id' ) );
+		$ids = array();
+		// Validate the entire replacement before deriving removals from omitted rows.
+		foreach ( $incoming as $row ) {
+			if ( ! is_array( $row ) || ! isset( $row['name'] ) || ! is_string( $row['name'] ) || '' === sanitize_text_field( $row['name'] ) ) {
+				return new \WP_Error( 'zpvp_invalid_attendees', 'Every attendee needs a name. No booth staff were changed.', array( 'status' => 400 ) );
+			}
+			foreach ( array( 'title', 'email' ) as $field ) {
+				if ( isset( $row[ $field ] ) && ! is_string( $row[ $field ] ) ) {
+					return new \WP_Error( 'zpvp_invalid_attendees', 'Attendee fields must be text.', array( 'status' => 400 ) );
+				}
+			}
+			if ( ! empty( $row['id'] ) ) {
+				if ( ! is_scalar( $row['id'] ) || ! ctype_digit( (string) $row['id'] ) || ! in_array( (int) $row['id'], $own, true ) || in_array( (int) $row['id'], $ids, true ) ) {
+					return new \WP_Error( 'zpvp_invalid_attendees', 'An attendee ID is invalid or duplicated. No booth staff were changed.', array( 'status' => 400 ) );
+				}
+				$ids[] = (int) $row['id'];
+			}
+		}
 		$existing = array();
 		$new      = array();
 		$seen     = array();
@@ -233,11 +326,12 @@ final class Rest {
 			if ( ! is_array( $row ) ) {
 				continue;
 			}
-			$clean = array(
+			// The shared form handler expects slashed input; REST JSON is already unslashed.
+			$clean = wp_slash( array(
 				'name'  => (string) ( $row['name'] ?? '' ),
 				'title' => (string) ( $row['title'] ?? '' ),
 				'email' => (string) ( $row['email'] ?? '' ),
-			);
+			) );
 			if ( ! empty( $row['id'] ) ) {
 				$existing[ (int) $row['id'] ] = $clean;
 				$seen[]                       = (int) $row['id'];
