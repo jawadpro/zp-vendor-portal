@@ -968,7 +968,7 @@ final class Builder {
 
 		$when = implode( ', ', array_filter( array( '' !== $range ? $range : (string) $v['year'], $v['city'] ) ) );
 		$pass = '<div class="zpvp-passes"><article class="zpvp-pass">'
-			. '<header class="zpvp-pass__top"><span class="zpvp-pass__hole" aria-hidden="true"></span><h3 class="zpvp-pass__event">' . esc_html( $title ) . '</h3>' . ( $when ? '<p class="zpvp-pass__when">' . esc_html( $when ) . '</p>' : '' ) . '</header>'
+			. '<header class="zpvp-pass__top"><span class="zpvp-pass__hole" aria-hidden="true"></span><h3 class="zpvp-pass__event">' . esc_html( $title ) . '</h3>' . ( $when ? '<p class="zpvp-pass__when">' . esc_html( $when ) . '</p>' : '' ) . '{{info_link}}</header>'
 			. '<div class="zpvp-pass__body"><div class="zpvp-pass__booth"><span>Booth</span><em>Number to be assigned</em></div>'
 			. '<dl class="zpvp-pass__facts"><div><dt>Booths</dt><dd>1</dd></div><div><dt>Payment</dt><dd><span class="zpvp-pill zpvp-pill--awaiting">Awaiting payment</span></dd></div><div><dt>Booth staff</dt><dd>2 people</dd></div></dl></div>'
 			. '<footer class="zpvp-pass__actions"><span class="zpvp-btn zpvp-btn--primary">Manage booth staff</span><span class="zpvp-btn">Invoice</span></footer>'
@@ -994,9 +994,14 @@ final class Builder {
 		if ( $files ) {
 			$sections[] = '<div class="zpvp-info__item"><h4>Documents</h4><ul>' . implode( '', $files ) . '</ul></div>';
 		}
-		$info = $sections
-			? '<details class="zpvp-info" open><summary>' . esc_html( $title ) . '</summary><div class="zpvp-info__grid">' . implode( '', $sections ) . '</div></details>'
-			: '<p class="zpvp-empty">Nothing here yet. Add hotel, decorator or electricity information or a floor plan, and registered vendors see it on My Conferences.</p>';
+		$venue = implode( ', ', array_filter( array( (string) $v['venue'], (string) $v['city'] ) ) );
+		$sub   = implode( '. ', array_filter( array( $range, $venue ) ) );
+		$info  = $sections
+			? '<div class="zpvp-dialog is-static"><header class="zpvp-dialog__head"><div><h2>' . esc_html( $title ) . '</h2>' . ( $sub ? '<p>' . esc_html( $sub ) . '</p>' : '' ) . '</div><span class="zpvp-dialog__close" aria-hidden="true">&times;</span></header>'
+				. '<div class="zpvp-dialog__body"><div class="zpvp-info__grid">' . implode( '', $sections ) . '</div></div></div>'
+				. '<p class="zpvp-empty">Registered vendors open this from the Conference info link on their conference card.</p>'
+			: '<p class="zpvp-empty">Nothing here yet. Add hotel, decorator or electricity information or a floor plan, and registered vendors get a Conference info link on their conference card.</p>';
+		$pass  = str_replace( '{{info_link}}', $sections ? '<span class="zpvp-pass__info">Conference info</span>' : '', $pass );
 
 		return array(
 			'open'    => $open,
