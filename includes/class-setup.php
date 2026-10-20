@@ -398,45 +398,58 @@ final class Setup {
 
 				<section class="zpvp-card">
 					<div class="zpvp-card__intro">
+						<span class="zpvp-step">1</span>
 						<h2>Annual registration form</h2>
-						<p>The form where vendors book several conferences at once, with one booth dropdown per conference. Leave "None" if you don't have one.</p>
+						<p>The form where vendors book several conferences at once, with one booth dropdown per conference. Choose "None" if you don't use one.</p>
 					</div>
-					<div class="zpvp-card__fields">
-						<label for="zpvp-annual">Annual form</label>
-						<select id="zpvp-annual" name="annual_form" onchange="location.href='<?php echo esc_js( admin_url( 'admin.php?page=' . self::PAGE . '&annual=' ) ); ?>'+this.value">
-							<option value="0">None</option>
-							<?php foreach ( $forms as $f ) : ?>
-								<?php if ( count( $f['selects'] ) >= 2 ) : ?>
-									<option value="<?php echo (int) $f['id']; ?>" <?php selected( $annual_id, $f['id'] ); ?>><?php echo esc_html( $f['id'] . ' – ' . Annual_Form::replace( (string) $f['title'] ) . ( $f['annual'] ? ' (detected)' : '' ) ); ?></option>
-								<?php endif; ?>
-							<?php endforeach; ?>
-						</select>
-						<p class="description">Each conference's booth dropdown on this form is matched automatically; you can change it in the table below.</p>
-						<label for="zpvp-year" style="margin-top:12px;display:block">Conference year</label>
-						<input type="number" id="zpvp-year" name="year" min="2015" max="2100" value="<?php echo (int) $year; ?>" class="small-text">
-						<label style="display:block;margin-top:8px"><input type="checkbox" name="create_conferences" value="1" checked> Also create a conference for this year (as a draft) in each series that doesn't have one</label>
+					<div class="zpvp-card__fields zpvp-fieldset">
+						<div class="zpvp-field">
+							<label for="zpvp-annual">Annual form</label>
+							<select id="zpvp-annual" name="annual_form" onchange="location.href='<?php echo esc_js( admin_url( 'admin.php?page=' . self::PAGE . '&annual=' ) ); ?>'+this.value">
+								<option value="0">None</option>
+								<?php foreach ( $forms as $f ) : ?>
+									<?php if ( count( $f['selects'] ) >= 2 ) : ?>
+										<option value="<?php echo (int) $f['id']; ?>" <?php selected( $annual_id, $f['id'] ); ?>><?php echo esc_html( Annual_Form::replace( (string) $f['title'] ) . ' (form ' . $f['id'] . ')' . ( $f['annual'] ? ', detected' : '' ) ); ?></option>
+									<?php endif; ?>
+								<?php endforeach; ?>
+							</select>
+							<p class="description">Each conference's booth dropdown on this form is matched automatically. You can change the match in the table below.</p>
+						</div>
+						<div class="zpvp-field zpvp-field--short">
+							<label for="zpvp-year">Conference year</label>
+							<input type="number" id="zpvp-year" name="year" min="2015" max="2100" value="<?php echo (int) $year; ?>">
+							<p class="description">The season these registrations are for.</p>
+						</div>
+						<div class="zpvp-field zpvp-field--wide">
+							<label class="zpvp-switch">
+								<input type="checkbox" name="create_conferences" value="1" checked>
+								<span class="zpvp-switch__track" aria-hidden="true"></span>
+								<span class="zpvp-toggle__title">Create this year's conferences as drafts</span>
+							</label>
+							<p class="zpvp-toggle__desc">Adds a draft conference for the year above in every series that doesn't have one yet. Nothing is shown to vendors until you publish it.</p>
+						</div>
 					</div>
 				</section>
 
-				<?php $this->table( 'Forms that look like conference registrations', $likely, true, $selects, $linked ); ?>
+				<?php $this->table( 'Forms that look like conference registrations', $likely, true, $selects, $linked, 'Ticked forms become conference series. Edit a series name to group two forms under one event.' ); ?>
 
 				<details class="zpvp-advanced" <?php echo $likely ? '' : 'open'; ?>>
-					<summary>Other forms (<?php echo count( $other ); ?>)</summary>
-					<p>Contact, subscription, sponsorship and other forms. Tick one only if it is also a conference registration.</p>
+					<summary>Other forms <span class="zpvp-count"><?php echo count( $other ); ?></span></summary>
+					<p class="zpvp-table-card__intro">Contact, subscription, sponsorship and other forms. Tick one only if it is also a conference registration.</p>
 					<?php $this->table( '', $other, false, $selects, $linked ); ?>
 				</details>
 
-				<div class="zpvp-actions" style="margin-top:16px">
+				<div class="zpvp-actions zpvp-actions--bar">
 					<?php submit_button( 'Create series', 'primary', 'submit', false ); ?>
 					<a class="button" href="<?php echo esc_url( Admin_Settings::url( 'series' ) ); ?>">Cancel</a>
-					<span class="description">Forms already in a series are skipped. A name matching an existing series adds the form to it.</span>
+					<span class="description">Forms already in a series are skipped. A name that matches an existing series adds the form to it.</span>
 				</div>
 			</form>
 		</div>
 		<?php
 	}
 
-	private function table( string $title, array $forms, bool $checked, array $selects, array $linked ): void {
+	private function table( string $title, array $forms, bool $checked, array $selects, array $linked, string $intro = '' ): void {
 		if ( ! $forms ) {
 			if ( $title ) {
 				echo '<div class="zpvp-table-card"><p class="zpvp-table-card__intro">No forms were detected as conference registrations. Look under "Other forms" below.</p></div>';
@@ -445,7 +458,15 @@ final class Setup {
 		}
 		?>
 		<div class="zpvp-table-card">
-			<?php if ( $title ) : ?><h2 class="zpvp-table-card__title"><?php echo esc_html( $title ); ?></h2><?php endif; ?>
+			<?php if ( $title ) : ?>
+				<div class="zpvp-table-card__head">
+					<span class="zpvp-step">2</span>
+					<div>
+						<h2 class="zpvp-table-card__title"><?php echo esc_html( $title ); ?> <span class="zpvp-count"><?php echo count( $forms ); ?></span></h2>
+						<?php if ( $intro ) : ?><p class="zpvp-table-card__intro"><?php echo esc_html( $intro ); ?></p><?php endif; ?>
+					</div>
+				</div>
+			<?php endif; ?>
 			<table class="widefat striped zpvp-connect-table">
 				<thead><tr>
 					<td class="check-column"><span class="screen-reader-text">Connect</span></td>
@@ -460,7 +481,9 @@ final class Setup {
 						</th>
 						<td>
 							<strong><?php echo esc_html( $f['title'] ); ?></strong>
-							<span class="zpvp-muted">Form <?php echo (int) $f['id']; ?> · <?php echo esc_html( number_format( $f['entries'] ) ); ?> entries · <?php echo $f['active'] ? 'active' : 'switched off'; ?><?php echo $already ? ' · already on “' . esc_html( $linked[ $f['id'] ] ) . '”' : ''; ?></span>
+							<span class="zpvp-muted">Form <?php echo (int) $f['id']; ?> · <?php echo esc_html( number_format( $f['entries'] ) ); ?> entries</span>
+							<span class="zpvp-form-tag <?php echo $f['active'] ? 'is-on' : 'is-off'; ?>"><?php echo $f['active'] ? 'Active' : 'Switched off'; ?></span>
+							<?php if ( $already ) : ?><span class="zpvp-form-tag is-linked"><?php echo esc_html( 'In “' . $linked[ $f['id'] ] . '”' ); ?></span><?php endif; ?>
 						</td>
 						<td><input type="text" class="regular-text" name="forms[<?php echo (int) $f['id']; ?>][name]" value="<?php echo esc_attr( $f['name'] ); ?>" aria-label="<?php echo esc_attr( 'Series name for form ' . $f['id'] ); ?>" <?php disabled( $already ); ?>></td>
 						<?php if ( $selects ) : ?>

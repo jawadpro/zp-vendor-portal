@@ -30,7 +30,8 @@ final class Admin_Settings {
 	}
 
 	public function assets( $hook ): void {
-		if ( self::SCREEN === $hook ) {
+		// The Connect forms screen (no menu entry, so its hook is admin_page_…) shares the settings styles.
+		if ( self::SCREEN === $hook || 'admin_page_' . Setup::PAGE === $hook ) {
 			wp_enqueue_style( 'zpvp-admin-settings', ZPVP_URL . 'assets/css/admin-settings.css', array(), ZPVP_VERSION );
 		}
 	}
