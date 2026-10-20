@@ -29,7 +29,7 @@
 	}
 
 
-	// Reads show progress where the content is (a bar over the table, dimmed totals);
+	// Reads show progress where the content is (dimmed rows and totals);
 	// only saves get the floating note. Both wait a moment so quick responses don't flicker.
 	const BUSY_DELAY = 200;
 	let pendingRequests = 0;

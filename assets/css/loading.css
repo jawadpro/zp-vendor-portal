@@ -20,22 +20,15 @@
 .zpvp-drawer-skel .zpvp-skel + .zpvp-skel { margin-top: 10px; }
 .zpvp-drawer-skel__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0; padding: 16px; border: 1px solid #e4e6eb; border-radius: 8px; }
 
-/* Refreshing content that is already on screen: keep it readable, run a thin bar over it. */
-.zpvp-table-wrap { position: relative; }
-.zpvp-table-wrap::before, #zpvp-kpis::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 3px; background: linear-gradient(90deg, transparent, #b8282e, transparent) no-repeat; background-size: 40% 100%; opacity: 0; transition: opacity .15s; pointer-events: none; z-index: 2; }
-#zpvp-kpis { position: relative; }
-#zpvp-kpis::before { top: -8px; }
-.zpvp-table-wrap.is-busy::before, #zpvp-kpis.is-busy::before { opacity: 1; animation: zpvp-bar 1s ease-in-out infinite; }
+/* Refreshing content that is already on screen: keep it readable, just dimmed. */
 .zpvp-table-wrap tbody, #zpvp-kpis .zpvp-kpi strong { transition: opacity .2s; }
 .zpvp-table-wrap.is-busy tbody { opacity: .45; }
 #zpvp-kpis.is-busy .zpvp-kpi strong { opacity: .4; }
 
 @keyframes zpvp-spin { to { transform: rotate(360deg); } }
 @keyframes zpvp-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
-@keyframes zpvp-bar { from { background-position: -40% 0; } to { background-position: 140% 0; } }
 @keyframes zpvp-pop { from { opacity: 0; transform: translate(-50%, 6px); } }
 @media (prefers-reduced-motion: reduce) {
 	.zpvp-activity, .zpvp-activity::before, .zpvp-loading::before, .zpvp-skel { animation: none; }
-	.zpvp-table-wrap.is-busy::before, #zpvp-kpis.is-busy::before { animation: none; background-size: 100% 100%; }
 }
 @media (max-width: 782px) { .zpvp-activity { bottom: 16px; max-width: calc(100vw - 32px); } }
