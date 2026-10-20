@@ -10,6 +10,13 @@ defined( 'ABSPATH' ) || exit;
  */
 final class Attendees {
 
+	/** Nested saves defer badge rebuilding until the final attendee state is known. */
+	private static array $batch_depth = array();
+
+	public static function is_batching( int $registration_id ): bool {
+		return ! empty( self::$batch_depth[ $registration_id ] );
+	}
+
 	public static function table(): string {
 		global $wpdb;
 		return $wpdb->prefix . 'zpvp_attendees';
@@ -58,7 +65,7 @@ final class Attendees {
 	public static function add( int $registration_id, array $data, string $source ): int {
 		global $wpdb;
 		$now = current_time( 'mysql' );
-		$wpdb->insert(
+		$inserted = $wpdb->insert(
 			self::table(),
 			array(
 				'registration_id' => $registration_id,
@@ -71,6 +78,9 @@ final class Attendees {
 				'updated_at'      => $now,
 			)
 		);
+		if ( false === $inserted ) {
+			return 0;
+		}
 		$id = (int) $wpdb->insert_id;
 		do_action( 'zpvp_attendee_added', $id, $registration_id, $source );
 		return $id;
@@ -161,9 +171,25 @@ final class Attendees {
 	 * @return array{added:int, updated:int, removed:int, errors:string[]}
 	 */
 	public static function save_from_request( int $registration_id, array $existing, array $new, string $source ): array {
+		self::$batch_depth[ $registration_id ] = ( self::$batch_depth[ $registration_id ] ?? 0 ) + 1;
+		try {
+			return self::apply_request( $registration_id, $existing, $new, $source );
+		} finally {
+			if ( 0 === --self::$batch_depth[ $registration_id ] ) {
+				unset( self::$batch_depth[ $registration_id ] );
+				Badges::sync_registration( $registration_id );
+			}
+		}
+	}
+
+	private static function apply_request( int $registration_id, array $existing, array $new, string $source ): array {
 		global $wpdb;
 		$result = array( 'added' => 0, 'updated' => 0, 'removed' => 0, 'errors' => array() );
-		$own    = array_map( 'intval', wp_list_pluck( self::for_registration( $registration_id ), 'id' ) );
+		$before = array();
+		foreach ( self::for_registration( $registration_id ) as $attendee ) {
+			$before[ (int) $attendee->id ] = $attendee;
+		}
+		$own = array_keys( $before );
 		$now    = current_time( 'mysql' );
 
 		foreach ( $existing as $id => $row ) {
@@ -172,7 +198,10 @@ final class Attendees {
 				continue;
 			}
 			if ( ! empty( $row['remove'] ) ) {
-				$wpdb->update( self::table(), array( 'status' => 'removed', 'updated_at' => $now ), array( 'id' => $id ) );
+				if ( false === $wpdb->update( self::table(), array( 'status' => 'removed', 'updated_at' => $now ), array( 'id' => $id ) ) ) {
+					$result['errors'][] = __( 'An attendee could not be removed. Please try again.', 'zp-vendor-portal' );
+					continue;
+				}
 				do_action( 'zpvp_attendee_removed', $id, $registration_id, $source );
 				++$result['removed'];
 				continue;
@@ -181,7 +210,13 @@ final class Attendees {
 			if ( null === $clean ) {
 				continue;
 			}
-			$wpdb->update( self::table(), $clean + array( 'updated_at' => $now ), array( 'id' => $id ) );
+			if ( $before[ $id ]->name === $clean['name'] && $before[ $id ]->title === $clean['title'] && $before[ $id ]->email === $clean['email'] ) {
+				continue;
+			}
+			if ( false === $wpdb->update( self::table(), $clean + array( 'updated_at' => $now ), array( 'id' => $id ) ) ) {
+				$result['errors'][] = __( 'An attendee could not be saved. Please try again.', 'zp-vendor-portal' );
+				continue;
+			}
 			do_action( 'zpvp_attendee_updated', $id, $registration_id, $source );
 			++$result['updated'];
 		}
@@ -192,8 +227,11 @@ final class Attendees {
 			}
 			$clean = self::clean_row( $row, $result['errors'] );
 			if ( null !== $clean ) {
-				self::add( $registration_id, $clean, $source );
-				++$result['added'];
+				if ( self::add( $registration_id, $clean, $source ) ) {
+					++$result['added'];
+				} else {
+					$result['errors'][] = __( 'An attendee could not be added. Please try again.', 'zp-vendor-portal' );
+				}
 			}
 		}
 		return $result;

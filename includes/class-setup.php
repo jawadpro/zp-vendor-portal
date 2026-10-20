@@ -181,7 +181,8 @@ final class Setup {
 	 * activated after this plugin: finish the setup on the next admin page load.
 	 */
 	public function lazy_install(): void {
-		if ( ! class_exists( '\GFAPI' ) || ! current_user_can( 'activate_plugins' ) ) {
+		// Setup discovery is unnecessary for Heartbeat and other admin AJAX requests.
+		if ( wp_doing_ajax() || ! class_exists( '\GFAPI' ) || ! current_user_can( 'activate_plugins' ) ) {
 			return;
 		}
 		$form_id = self::find_registration_form();

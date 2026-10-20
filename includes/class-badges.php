@@ -38,7 +38,9 @@ final class Badges {
 	}
 
 	public function on_attendee_change( $attendee_id, $registration_id ): void {
-		self::sync_registration( (int) $registration_id );
+		if ( ! Attendees::is_batching( (int) $registration_id ) ) {
+			self::sync_registration( (int) $registration_id );
+		}
 	}
 
 	public static function install(): void {
@@ -151,8 +153,17 @@ final class Badges {
 					$data['status'] = 'queued';
 				}
 			}
-			$data['updated_at'] = $now;
-			$wpdb->update( self::table(), $data, array( 'id' => $b->id ) );
+			$dirty = false;
+			foreach ( $data as $key => $value ) {
+				if ( (string) $b->$key !== (string) $value ) {
+					$dirty = true;
+					break;
+				}
+			}
+			if ( $dirty ) {
+				$data['updated_at'] = $now;
+				$wpdb->update( self::table(), $data, array( 'id' => $b->id ) );
+			}
 		}
 	}
 

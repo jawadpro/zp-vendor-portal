@@ -548,7 +548,7 @@ final class Badge_Orders {
 			array( 'registration_id' => $registration_id, 'status' => 'linked', 'note' => mb_substr( $note, 0, 255 ), 'updated_at' => current_time( 'mysql' ) ),
 			array( 'id' => $order_id )
 		);
-		if ( 'failed' !== $order->payment_status ) {
+		if ( in_array( $order->payment_status, array( 'paid', 'no_charge' ), true ) ) {
 			self::apply( self::get( $order_id ), $reg );
 		}
 		return true;

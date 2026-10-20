@@ -124,9 +124,10 @@ final class Builder {
 		wp_enqueue_media();
 		wp_enqueue_style( 'zpvp-portal', ZPVP_URL . 'assets/css/portal.css', array(), ZPVP_VERSION );
 		wp_enqueue_style( 'zpvp-flatpickr', ZPVP_URL . 'assets/vendor/flatpickr/flatpickr.min.css', array(), '4.6.13' );
+		wp_enqueue_style( 'zpvp-loading', ZPVP_URL . 'assets/css/loading.css', array(), (string) filemtime( ZPVP_PATH . 'assets/css/loading.css' ) );
 		wp_enqueue_style( 'zpvp-builder', ZPVP_URL . 'assets/css/builder.css', array( 'zpvp-portal', 'zpvp-flatpickr' ), ZPVP_VERSION );
 		wp_enqueue_script( 'zpvp-flatpickr', ZPVP_URL . 'assets/vendor/flatpickr/flatpickr.min.js', array(), '4.6.13', true );
-		wp_enqueue_script( 'zpvp-builder', ZPVP_URL . 'assets/js/builder.js', array( 'zpvp-flatpickr' ), ZPVP_VERSION, true );
+		wp_enqueue_script( 'zpvp-builder', ZPVP_URL . 'assets/js/builder.js', array( 'zpvp-flatpickr' ), (string) filemtime( ZPVP_PATH . 'assets/js/builder.js' ), true );
 		wp_localize_script(
 			'zpvp-builder',
 			'ZPVP_BUILDER',
@@ -141,7 +142,7 @@ final class Builder {
 	}
 
 	public function render(): void {
-		echo '<div class="wrap zpvp-b" id="zpvp-builder"><h1 class="zpvp-b__title">Conference Builder</h1><p class="zpvp-b__loading">Loading…</p>'
+		echo '<div class="wrap zpvp-b" id="zpvp-builder"><h1 class="zpvp-b__title">Conference Builder</h1><p class="zpvp-loading" role="status">Loading Conference Builder…</p>'
 			. '<noscript><p>The builder needs JavaScript. You can still edit conferences on the <a href="' . esc_url( admin_url( 'edit.php?post_type=' . Conferences::EDITION ) ) . '">Conferences</a> screen.</p></noscript></div>';
 	}
 
@@ -274,7 +275,7 @@ final class Builder {
 			return $id;
 		}
 		$values = self::clean( (array) $r->get_param( 'values' ), self::load( $id ) );
-		if ( ! $values['series'] ) {
+		if ( ! $values['series'] || Conferences::SERIES !== get_post_type( (int) $values['series'] ) ) {
 			return new \WP_Error( 'zpvp_series', 'Choose the conference series first.', array( 'status' => 400 ) );
 		}
 		if ( $values['year'] < 2015 || $values['year'] > 2100 ) {
@@ -284,9 +285,16 @@ final class Builder {
 		if ( $taken ) {
 			return new \WP_Error( 'zpvp_dup', sprintf( '%s already exists. Open that conference instead.', self::plain( $taken ) ), array( 'status' => 409 ) );
 		}
+		$status = sanitize_key( (string) $r->get_param( 'status' ) );
+		// The browser's disabled Publish button is not a server-side validation boundary.
+		if ( 'publish' === $status || ( 'publish' === get_post_status( $id ) && 'draft' !== $status ) ) {
+			$evaluation = self::evaluate( $id, $values );
+			if ( ! empty( $evaluation['counts']['error'] ) ) {
+				return new \WP_Error( 'zpvp_publish_blocked', 'Fix the items marked Needs attention before publishing.', array( 'status' => 400, 'checks' => $evaluation['checks'] ) );
+			}
+		}
 		self::persist( $id, $values );
 
-		$status = sanitize_key( (string) $r->get_param( 'status' ) );
 		if ( in_array( $status, array( 'publish', 'draft' ), true ) && get_post_status( $id ) !== $status ) {
 			wp_update_post( array( 'ID' => $id, 'post_status' => $status ) );
 		}

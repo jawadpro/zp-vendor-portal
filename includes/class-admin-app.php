@@ -90,8 +90,9 @@ final class Admin_App {
 		if ( 'toplevel_page_zpvp' !== $hook ) {
 			return;
 		}
-		wp_enqueue_style( 'zpvp-admin-app', ZPVP_URL . 'assets/css/admin-app.css', array(), ZPVP_VERSION );
-		wp_enqueue_script( 'zpvp-admin-app', ZPVP_URL . 'assets/js/admin-app.js', array(), ZPVP_VERSION, true );
+		wp_enqueue_style( 'zpvp-loading', ZPVP_URL . 'assets/css/loading.css', array(), (string) filemtime( ZPVP_PATH . 'assets/css/loading.css' ) );
+		wp_enqueue_style( 'zpvp-admin-app', ZPVP_URL . 'assets/css/admin-app.css', array(), (string) filemtime( ZPVP_PATH . 'assets/css/admin-app.css' ) );
+		wp_enqueue_script( 'zpvp-admin-app', ZPVP_URL . 'assets/js/admin-app.js', array(), (string) filemtime( ZPVP_PATH . 'assets/js/admin-app.js' ), true );
 
 		$editions = self::editions();
 		$default  = 0;
